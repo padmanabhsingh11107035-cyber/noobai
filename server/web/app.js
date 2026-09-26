@@ -164,6 +164,102 @@ $("surveySend").onclick = async () => {
   } catch (e) { toast(e.message, true); }
 };
 
+// ---------------------------------------------------------------- MUSIC
+// Songs play in YouTube's own player (youtube-nocookie.com), shown on the Talk page. NOOB finds them on the PC
+// ("PLAY: ..." in its answer) and sends a few matches; if one can't be played outside YouTube, the next one is tried.
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z"/></svg>';
+const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 5v14l12-7L7 5Z"/></svg>';
+const music = { player: null, api: null, results: [], index: 0, playing: false, resumeAfterTalk: false, timer: 0 };
+
+function youtubeApi() {
+  if (!music.api) {
+    music.api = new Promise((resolve, reject) => {
+      window.onYouTubeIframeAPIReady = resolve;
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      script.onerror = () => { music.api = null; reject(new Error("YouTube could not be reached")); };
+      document.head.append(script);
+    });
+  }
+  return music.api;
+}
+
+function paintMusic() {
+  $("musicToggle").innerHTML = music.playing ? ICON_PAUSE : ICON_PLAY;            // fixed, trusted SVG only
+  $("musicToggle").title = $("musicToggle").ariaLabel = music.playing ? "Pause" : "Play";
+  $("musicCard").classList.toggle("playing", music.playing);
+}
+
+async function playSongs(results) {
+  music.results = results || [];
+  music.index = 0;
+  await loadSong();
+}
+
+async function loadSong() {
+  const song = music.results[music.index];
+  if (!song) { stopMusic(); toast("Sorry, that song can't be played here. Try asking for another one.", true); return; }
+  $("musicCard").hidden = false;
+  $("musicTitle").textContent = song.title;
+  $("musicSub").textContent = song.channel ? `${song.channel} · YouTube` : "YouTube";
+  $("musicHint").hidden = true;
+  try { await youtubeApi(); } catch (e) { toast(e.message, true); return; }
+  if (!music.player) {
+    music.player = new YT.Player("ytPlayer", {
+      host: "https://www.youtube-nocookie.com",
+      videoId: song.id, width: "100%", height: "100%",
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0 },
+      events: {
+        onReady: (e) => { e.target.setVolume(100); e.target.playVideo(); },
+        onStateChange: (e) => {
+          music.playing = e.data === YT.PlayerState.PLAYING;
+          if (music.playing) $("musicHint").hidden = true;
+          paintMusic();
+        },
+        onError: () => { music.index++; loadSong(); },          // not allowed outside YouTube: try the next match
+      },
+    });
+  } else {
+    music.player.setVolume(100);
+    music.player.loadVideoById(song.id);
+  }
+  paintMusic();
+  clearTimeout(music.timer);                                   // phones may need one tap on the video to start
+  music.timer = setTimeout(() => { if (!music.playing) $("musicHint").hidden = false; }, 4000);
+}
+
+function stopMusic() {
+  clearTimeout(music.timer);
+  if (music.player && music.player.stopVideo) music.player.stopVideo();
+  music.playing = music.resumeAfterTalk = false;
+  music.results = [];
+  $("musicCard").hidden = true;
+}
+
+// After NOOB's answer: start, stop, pause or continue the music. Returns true when music is now playing.
+function afterAnswer(action) {
+  const resume = music.resumeAfterTalk;
+  music.resumeAfterTalk = false;
+  if (music.player && music.player.setVolume) music.player.setVolume(100);
+  if (action && action.action === "play") { playSongs(action.results); return true; }
+  if (action && action.action === "stop") { stopMusic(); return false; }
+  if (action && action.action === "pause") { if (music.player) music.player.pauseVideo(); return false; }
+  if (action && action.action === "next") { music.index++; loadSong(); return true; }
+  if (music.player && music.results.length && (resume || (action && action.action === "resume"))) {
+    music.player.playVideo();
+    return true;
+  }
+  return music.playing;
+}
+
+$("musicToggle").onclick = () => {
+  if (!music.player) return;
+  if (music.playing) music.player.pauseVideo(); else music.player.playVideo();
+};
+$("musicNext").onclick = () => { music.index++; loadSong(); };
+$("musicStop").onclick = stopMusic;
+paintMusic();
+
 // ---------------------------------------------------------------- TALK
 const orb = $("orb");
 let state = "idle";                 // idle / listening / thinking / speaking
@@ -217,6 +313,7 @@ function typingBubble() {
 
 async function startListening() {
   if (state !== "idle") return;
+  if (music.playing) { music.player.pauseVideo(); music.resumeAfterTalk = true; }   // quiet while you talk
   if (!window.isSecureContext || !navigator.mediaDevices || !window.MediaRecorder) {
     toast("Voice needs a secure (https://) page and a modern browser. You can type your message instead.", true);
     return;
@@ -326,6 +423,8 @@ async function streamAnswer(path, request, fromVoice) {
   setState("thinking");
   const typing = typingBubble();
   let bubble = null, ok = false, blocked = false, streamDone = false, playing = false, cancelled = false, wantSurvey = false;
+  let musicAction = null;
+  if (music.playing) music.player.setVolume(20);                       // NOOB's voice over the music
   const queue = [], clips = [];
   let allPlayed;
   const finished = new Promise((resolve) => (allPlayed = resolve));
@@ -373,6 +472,7 @@ async function streamAnswer(path, request, fromVoice) {
     } else if (ev.type === "done") {
       ok = ev.ok;
       if ("questions_left" in ev) showFreeNote(ev.questions_left);
+      if (ev.music) musicAction = ev.music;
       if (ev.survey) wantSurvey = true;
       const b = noobBubble();
       if (!b.textContent) b.textContent = ev.answer;
@@ -425,8 +525,9 @@ async function streamAnswer(path, request, fromVoice) {
   }
   if (currentReply === reply) currentReply = null;
   setState("idle");
+  const musicOn = afterAnswer(musicAction);
   if (wantSurvey) { $("convMode").checked = false; setTimeout(showSurvey, 600); return; }
-  if (fromVoice && ok && !blocked && !cancelled && $("convMode").checked) setTimeout(startListening, 400);  // keep talking
+  if (fromVoice && ok && !blocked && !cancelled && !musicOn && $("convMode").checked) setTimeout(startListening, 400);  // keep talking
 }
 
 $("orbBtn").onclick = () => {

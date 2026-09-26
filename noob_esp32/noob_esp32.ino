@@ -30,7 +30,7 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // ================================================================
 // The PC's address and the secret key are set by pairing in the NOOB App.
 
-#define FW_VERSION  "1.2"
+#define FW_VERSION  "1.3"
 #define DEVICE_PORT 4210         // NOOB listens here for the NOOB App
 #define SERVER_PORT 4211         // the NOOB server listens here
 #define PAIR_WINDOW_MS 120000    // a pairing code is valid for 2 minutes
@@ -341,7 +341,13 @@ size_t recordWhileHeld() {
 // Everything written here goes straight to the speaker (16-bit samples, with the volume applied).
 class SpeakerStream : public Stream {
  public:
+  // Pressing the button while NOOB talks or plays a song stops it (the button must be let go first,
+  // so the press that asked the question does not count).
+  bool stopped = false;
   size_t write(const uint8_t* data, size_t len) override {
+    if (digitalRead(BUTTON_PIN) == HIGH) released = true;
+    else if (released) stopped = true;
+    if (stopped) return 0;                               // writeToStream() then ends the download
     static int16_t out[512];
     size_t count = 0, i = 0;
     if (hasCarry && len > 0) {                          // a sample that was split between two pieces
@@ -365,6 +371,7 @@ class SpeakerStream : public Stream {
  private:
   uint8_t carry = 0;
   bool hasCarry = false;
+  bool released = false;
   static int16_t scale(int16_t s) { return (int16_t)(((int32_t)s * VOLUME_PERCENT) / 100); }
   static void play(const int16_t* samples, size_t count) {
     if (count == 0) return;
@@ -410,10 +417,17 @@ void askServerAndPlay(size_t samples) {
 
   // The answer arrives sentence by sentence while the PC is still making the rest, so NOOB starts
   // speaking at once. writeToStream() unwraps the web "chunks" and passes pure audio to the speaker.
-  showStatus("Speaking...", "");
+  showStatus("Speaking...", "press button = stop");
   SpeakerStream speaker;
   int result = http.writeToStream(&speaker);
-  if (result < 0) Serial.printf("[NOOB] Stream ended early: %s\n", http.errorToString(result).c_str());
+  if (speaker.stopped) {
+    Serial.println("[NOOB] Stopped by the button");
+    showStatus("Stopped", "");
+    while (digitalRead(BUTTON_PIN) == LOW) delay(10);    // wait until the button is let go
+    delay(300);
+  } else if (result < 0) {
+    Serial.printf("[NOOB] Stream ended early: %s\n", http.errorToString(result).c_str());
+  }
 
   http.end();
   pcOnline = true;

@@ -45,6 +45,7 @@ import noob_devices
 import noob_settings
 import noob_social
 import noob_tunnel
+import noob_music
 import noob_network
 from noob_memory import NoobMemory
 
@@ -120,6 +121,16 @@ Live information:
   SEARCH: <short English web search query>
   You will then receive web search results. Answer from them, in the user's language.
 
+Music and YouTube (you can play any song, music or video from YouTube):
+- When the user asks you to play something (a song, a singer, a bhajan, film songs, music to study or sleep, a video),
+  reply with ONE short sentence in their language saying what you will play, then on a new line:
+  PLAY: <YouTube search words, usually song name and singer in English letters, e.g. Kesariya Arijit Singh>
+  If they only say "play a song" or "play music", choose something fitting what you know they like.
+- To stop, pause or continue the music, reply briefly and add one line:
+  MUSIC: stop   or   MUSIC: pause   or   MUSIC: resume
+  For the next song or another song, choose one yourself and use PLAY again.
+- PLAY and MUSIC lines are never spoken.
+
 Permanent memory (survives power-off):
 - When the user tells you something worth remembering about themselves, their family or friends (name, age, birthday,
   health conditions, allergies, medicines, doctor, likes and dislikes, plans, important dates, or anything they ask you
@@ -127,7 +138,7 @@ Permanent memory (survives power-off):
   REMEMBER: <the fact as one short English sentence that says who it is about>
 - If the user asks you to forget something, or a fact is no longer true, add a line:  FORGET: <id number>
   To update a fact, FORGET the old id and REMEMBER the new fact.
-- REMEMBER, FORGET and MOOD lines are never spoken. Never REMEMBER something already in your memory list or profile.
+- REMEMBER, FORGET, MOOD, PLAY and MUSIC lines are never spoken. Never REMEMBER something already in your memory list or profile.
 - Use what you remember to personalise answers, especially health answers (allergies, conditions, medicines, age).
 - Private details such as phone numbers, email and home address: use them only when the user asks about them.
 - When the profile has a birthday, work out the user's age from it and today's date; wish them on their birthday.
@@ -290,14 +301,15 @@ def apply_memory_commands(reply, user_id):
     if not match:
         return reply.strip()
     answer, commands = reply[:match.start()], reply[match.start():]
-    for kind, value in re.findall(r"\b(REMEMBER|FORGET|MOOD)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET|MOOD)\s*:|$)",
-                                  commands, flags=re.DOTALL):
+    for kind, value in re.findall(COMMAND_LINE, commands, flags=re.DOTALL):
         if kind == "REMEMBER" and value:
             log(f"   [memory] saved #{memory.add_fact(user_id, value)}: {said(user_id, value)}")
         elif kind == "FORGET":
             number = re.search(r"\d+", value)
             if number and memory.delete_fact(user_id, int(number.group())):
                 log(f"   [memory] forgot #{number.group()}")
+        elif kind in ("PLAY", "MUSIC"):
+            continue                                   # handled by music_request()
         elif kind == "MOOD":
             mood = re.match(r"([^\W\d_][\w-]{0,29})\W+([1-5])\b", value)
             if mood:
@@ -334,7 +346,19 @@ Then write your reply on the next line, starting with the language tag. If the r
 write "HEARD:" with nothing after it, and ask the user to say it again."""
 
 SENTENCE_END = re.compile(r"[.!?।॥]+[\"'”’)\]]*(?:\s+|$)|\n+")
-MEMORY_MARK = re.compile(r"\b(?:REMEMBER|FORGET|MOOD)\s*:")
+MEMORY_MARK = re.compile(r"\b(?:REMEMBER|FORGET|MOOD|PLAY|MUSIC)\s*:")
+COMMAND_LINE = r"\b(REMEMBER|FORGET|MOOD|PLAY|MUSIC)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET|MOOD|PLAY|MUSIC)\s*:|$)"
+
+
+def music_request(reply):
+    """("play", search words) or ("stop" / "pause" / "resume" / "next", "") from the answer's PLAY / MUSIC line."""
+    for kind, value in re.findall(COMMAND_LINE, reply, flags=re.DOTALL):
+        value = value.strip().splitlines()[0].strip() if value.strip() else ""
+        if kind == "PLAY" and value:
+            return ("play", value[:200])
+        if kind == "MUSIC" and value.lower().split()[:1] in (["stop"], ["pause"], ["resume"], ["next"]):
+            return (value.lower().split()[0], "")
+    return None
 LANG_TAG = re.compile(r"\s*\[([a-zA-Z]{2,3})(?:-[a-zA-Z]+)?\]\s*")
 
 
@@ -351,7 +375,7 @@ def split_sentences(text):
 
 class AnswerStream:
     """Reads the AI's answer as it streams in and hands out finished sentences to speak at once.
-    Handles the HEARD line (voice), a SEARCH request, the [language] tag and REMEMBER/FORGET/MOOD lines."""
+    Handles the HEARD line (voice), a SEARCH request, the [language] tag and REMEMBER/FORGET/MOOD/PLAY/MUSIC lines."""
 
     def __init__(self, voice, fallback_lang="en"):
         self.voice = voice
@@ -362,7 +386,7 @@ class AnswerStream:
         self.lang = fallback_lang
         self.search_query = None
         self.spoken = 0
-        self.stopped = False                          # REMEMBER/FORGET/MOOD reached: nothing more to speak
+        self.stopped = False                          # a command line (REMEMBER, PLAY...) reached: nothing more to speak
 
     def feed(self, piece="", final=False):
         """Returns a list of events: ("heard", text) and ("sentence", text, lang)."""
@@ -537,15 +561,38 @@ def converse(user_id, text=None, pcm=None):
         yield event
 
     answer = stream.answer()
+    commands = stream.raw[stream.text_start:] if stream.text_start is not None else ""
+    music, music_note = None, ""
+    request_ = music_request(commands)
+    if request_ and request_[0] == "play":            # "play a song": find it on YouTube
+        results = noob_music.search(request_[1])
+        log(f"   [music] {said(user_id, request_[1])} -> {len(results)} result(s)")
+        if results:
+            music = {"action": "play", "query": request_[1], "results": results}
+            music_note = f" (Playing on YouTube: {results[0]['title']})"
+            if not answer:
+                answer = f"Playing {results[0]['title']}."
+                yield ("sentence", clean_for_speech(answer), "en")
+        else:
+            sorry = "Sorry, I could not find that on YouTube right now."
+            answer = f"{answer} {sorry}".strip()
+            yield ("sentence", sorry, "en")
+    elif request_:                                     # stop / pause / resume / next
+        music = {"action": request_[0]}
+        if not answer:
+            answer = "Okay."
+            yield ("sentence", answer, "en")
     if not answer:
         yield ("sentence", NO_BRAIN, "en")
         yield ("done", NO_BRAIN, "en", False)
         return
-    apply_memory_commands(stream.raw[stream.text_start:], user_id)
-    memory.add_exchange(user_id, heard or "(voice message)", f"[{stream.lang}] {answer}")
+    apply_memory_commands(commands, user_id)
+    memory.add_exchange(user_id, heard or "(voice message)", f"[{stream.lang}] {answer}{music_note}")
     log(f"NOOB ({stream.lang}, {noob_brain.last_model}, {time.time() - started:.1f} s): {said(user_id, answer)}")
     asked = memory.count_question(user_id)
     extra = {"questions_left": questions_left(user_id)}
+    if music:
+        extra["music"] = music
     if (asked == SURVEY_AFTER or (asked > SURVEY_AFTER and (asked - SURVEY_AFTER) % 25 == 0)) \
             and not memory.has_reviewed(user_id):
         extra["survey"] = True                        # the app shows the 5-star rating card
@@ -690,12 +737,23 @@ def ask():
     user_id, name, pcm = device["user_id"], device["name"], request.get_data()
 
     def generate():
+        music = None
         for kind, value in in_background(spoken_stream(converse(user_id, pcm=pcm),
                                                        lambda t, lang: any_audio_to_pcm(voice_mp3(t, lang)))):
             if kind == "heard":
                 log(f"You ({name}): {said(user_id, value)}")
             elif kind == "audio":
                 yield value
+            elif kind == "done" and len(value) > 3:
+                music = value[3].get("music")
+        if music and music.get("action") == "play":    # then the song itself (NOOB's button stops it)
+            song = noob_music.best_for_device(music["results"])
+            log(f"   [music] playing on {name}: {song['title']}")
+            yield b"\0\0" * (SAMPLE_RATE // 4)              # a short pause between NOOB's words and the song
+            try:
+                yield from noob_music.pcm(song["id"])
+            except Exception as e:
+                log(f"!! Could not play the song: {e}")
     return Response(generate(), mimetype="application/octet-stream")
 
 

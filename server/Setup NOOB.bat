@@ -20,6 +20,8 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+rem YouTube changes often: running Setup again always fetches the newest yt-dlp (used to play songs).
+".venv\Scripts\python.exe" -m pip install --no-cache-dir --disable-pip-version-check -q -U yt-dlp
 echo.
 echo  Done! Now double-click "NOOB App.bat" to open NOOB.
 echo.

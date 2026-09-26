@@ -44,6 +44,20 @@
         </button>
         <div class="status-line" id="statusLine">Tap to talk</div>
         <div class="free-note" id="freeNote" hidden></div>
+        <!-- Now playing: songs from YouTube, in YouTube's own player -->
+        <div class="music-card" id="musicCard" hidden>
+          <div class="music-video"><div id="ytPlayer"></div></div>
+          <div class="music-row">
+            <div class="music-info">
+              <div class="music-title" id="musicTitle"></div>
+              <div class="music-sub" id="musicSub">YouTube</div>
+            </div>
+            <button class="icon-btn" id="musicToggle" title="Pause" aria-label="Pause"></button>
+            <button class="icon-btn" id="musicNext" title="Try another video" aria-label="Try another video"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12Zm10-12v12h2V6h-2Z"/></svg></button>
+            <button class="icon-btn" id="musicStop" title="Stop the music" aria-label="Stop the music"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6L19 6.4Z"/></svg></button>
+          </div>
+          <div class="music-hint" id="musicHint" hidden>If the song doesn't start, tap the video ▶</div>
+        </div>
         <div class="caption" id="caption" hidden>
           <div class="caption-heard" id="captionHeard"></div>
           <div class="caption-answer" id="captionAnswer"></div>
@@ -62,6 +76,7 @@
               <button class="chip">What's the date today?</button>
               <button class="chip">Mujhe sar dard hai, kya karun?</button>
               <button class="chip">Tell me a fun fact</button>
+              <button class="chip">Play Kesariya by Arijit Singh</button>
             </div>
           </div>
         </div>

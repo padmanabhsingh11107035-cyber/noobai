@@ -25,6 +25,7 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | Healthcare knowledge with safety rules | Emergencies → 112 / 108, Tele MANAS 14416, no false diagnoses |
 | **Understands your mental well-being** | Notices how you feel from your words and your *tone of voice*, answers with care, checks in when you seem low for days; mood history on the Memory page (private, can be cleared) |
 | Knows about everything | Science, maths, history, coding, sports, films, law, money, cooking, travel... plus live web search for anything recent |
+| **Plays songs from YouTube** | *"Play Kesariya"*, *"गाना चलाओ"*: the app plays it in YouTube's own player (pause / another video / stop, or just say "stop the music"); the NOOB device plays the sound on its speaker — press the button to stop |
 | **Permanent memory** | Everything NOOB learns is saved in a local database and survives power-off |
 | **NOOB App**: About Me, Memory, Conversations, Devices, Settings | Web app (HTML + CSS + JavaScript) served by the NOOB server |
 | **Continue with NOOB** | Sign in with your NOOB social media account (nooob.xyz) — no new password needed |
@@ -214,6 +215,7 @@ After that, NOOB and the app keep track of each other by themselves:
 ## 6. Using NOOB
 
 **On the NOOB device:** hold the button, speak, release. The OLED shows *Listening → Thinking → Speaking*.
+Press the button once while NOOB is talking or playing a song to stop it.
 
 **In the NOOB App:**
 
@@ -230,7 +232,19 @@ The server keeps running after you close the app window, so the NOOB device keep
 Stop it in **Settings → Stop NOOB server**. Open the app again with `NOOB App.bat`.
 
 Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group is B positive"*,
-*"What's today's date?"*, *"Who won yesterday's cricket match?"*, *"தலைவலிக்கு என்ன செய்யலாம்?"*
+*"What's today's date?"*, *"Who won yesterday's cricket match?"*, *"தலைவலிக்கு என்ன செய்யலாம்?"*,
+*"Play Kesariya by Arijit Singh"*, *"Stop the music"*
+
+### Songs from YouTube
+
+Ask for any song, singer, bhajan or music. NOOB finds it on YouTube for free (no API key, using `yt-dlp`) and:
+
+- **in the NOOB App** plays it in YouTube's own player on the Talk page (pause, try another video, stop). The music
+  goes quiet while you talk to NOOB and continues afterwards. On some phones the first song needs one tap on ▶.
+- **on the NOOB device** says what it will play, then plays the song's sound on the speaker (up to 15 minutes).
+  Press the button to stop.
+
+YouTube changes often; if songs stop working, run `Setup NOOB.bat` again — it fetches the newest `yt-dlp`.
 
 ---
 
@@ -369,6 +383,7 @@ noob-esp32-assistant/
     ├── noob_social.py         ← "Continue with NOOB" (sign in with a nooob.xyz account)
     ├── noob_tunnel.py         ← optional online address (Cloudflare Tunnel)
     ├── noob_network.py        ← quick connections on phone hotspots (IPv4 first)
+    ├── noob_music.py          ← songs from YouTube (search, and the sound for the device)
     ├── Setup online access.bat
     ├── requirements.txt
     └── web/                   ← the NOOB App (HTML, CSS, JavaScript)

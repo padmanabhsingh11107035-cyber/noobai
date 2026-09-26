@@ -5,3 +5,4 @@ requests>=2.31
 ddgs>=9.0
 numpy>=2.0
 av>=14.0
+yt-dlp>=2026.8
