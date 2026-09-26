@@ -274,3 +274,22 @@ textarea { resize: vertical; min-height: 70px; }
 @keyframes talk { from { transform: scale(1); } to { transform: scale(1.07); } }
 .play-voice { margin-top: 8px; }
 .open-row { margin: 4px 0 14px; }
+
+/* ---------- live caption under the orb ---------- */
+.caption { margin-top: 14px; max-width: 520px; width: 100%; text-align: center; animation: pop .3s var(--ease); }
+.caption-heard { color: var(--muted); font-size: 14px; font-style: italic; margin-bottom: 6px; }
+.caption-answer { font-size: 17px; line-height: 1.5; max-height: 30vh; overflow-y: auto; }
+
+/* ---------- phones: icon-only bottom bar (like the NOOB app), everything visible on one screen ---------- */
+@media (max-width: 860px) {
+  nav a span { display: none; }
+  nav a { padding: 12px 0; flex: 1; align-items: center; justify-content: center; border-radius: 14px; }
+  nav a svg { width: 26px; height: 26px; }
+  nav a.active { box-shadow: none; color: var(--cyan); background: transparent; }
+  nav a.active svg { filter: drop-shadow(0 0 8px rgba(34, 211, 238, .7)); }
+  .sidebar { padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); }
+  .talk-left h1 { font-size: 26px; }
+  .orb-wrap { margin: 18px 0 12px; }
+  .orb { width: 150px; height: 150px; }
+  .switch-row { margin-top: 16px; }
+}

@@ -627,11 +627,16 @@ DEVICE_SEEN = {}                                        # device MAC -> last tim
 ONLINE_SECONDS = 70
 
 
+# Websites allowed to show NOOB AI inside them (the NOOB social app); no other site can embed it.
+EMBED_ALLOWED = "'self' https://nooob.xyz https://www.nooob.xyz"
+
+
 @app.after_request
 def no_caching_of_personal_data(response):
     if request.path.startswith(("/api/", "/app", "/login", "/noob-signin", "/ask", "/device/")):
         response.headers["Cache-Control"] = "no-store, private"
         response.headers["Vary"] = "Cookie"
+    response.headers["Content-Security-Policy"] = f"frame-ancestors {EMBED_ALLOWED}"
     return response
 
 

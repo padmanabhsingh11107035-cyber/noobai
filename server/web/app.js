@@ -304,17 +304,26 @@ async function streamAnswer(path, request, fromVoice) {
       playNext();
     });
   };
+  const caption = $("caption"), captionHeard = $("captionHeard"), captionAnswer = $("captionAnswer");
+  caption.hidden = true;
+  captionHeard.textContent = captionAnswer.textContent = "";
   const noobBubble = () => {
     if (!bubble) { typing.remove(); bubble = addBubble("noob", ""); }
     return bubble;
   };
   const handle = (ev) => {
     if (ev.type === "heard") {
-      if (ev.text) $("chat").insertBefore(el("div", "bubble you", ev.text), typing);
+      if (ev.text) {
+        $("chat").insertBefore(el("div", "bubble you", ev.text), typing);
+        captionHeard.textContent = `“${ev.text}”`;
+        caption.hidden = false;
+      }
     } else if (ev.type === "text") {
       const b = noobBubble();
       b.textContent += (b.textContent ? " " : "") + ev.text;
       $("chat").scrollTop = $("chat").scrollHeight;
+      captionAnswer.textContent = b.textContent;
+      caption.hidden = false;
     } else if (ev.type === "audio") {
       const bytes = Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: ev.mime || "audio/mpeg" }));
@@ -325,6 +334,8 @@ async function streamAnswer(path, request, fromVoice) {
       const b = noobBubble();
       if (!b.textContent) b.textContent = ev.answer;
       if (!ev.ok) b.classList.add("error");
+      captionAnswer.textContent = b.textContent;
+      caption.hidden = false;
     }
   };
 
