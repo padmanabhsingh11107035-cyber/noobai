@@ -215,11 +215,11 @@ After that, NOOB and the app keep track of each other by themselves:
 | Page | What you can do |
 |---|---|
 | **Talk** | Tap the orb (or press Space) and speak — NOOB stops listening when you stop talking and answers aloud. Turn on **Conversation mode** to keep chatting. You can also type. |
-| **About Me** | Your name, age, city, blood group, allergies, conditions, medicines, doctor, emergency contact, hobbies... NOOB uses these in every answer. |
+| **About Me** | Your name, age, city, blood group, allergies, conditions, medicines, doctor, emergency contact, hobbies... NOOB uses these in every answer. Also **My account**: link NOOB account, change password, sign out. |
 | **Memory** | Everything NOOB remembered from your conversations. Search, add, edit or delete. |
 | **Conversations** | Every question and answer from the app and the device, with search. |
 | **Devices** | Connect to nearby NOOB devices, see and forget paired devices. |
-| **Settings** | Your account (change password, sign out). For the owner: Gemini key, invite code, accounts, server details, live log, stop the server. |
+| **Settings** *(owner only)* | Gemini key, who can join (invite code / open to NOOB users), accounts, server details, live log (other people's messages stay private), stop the server. |
 
 The server keeps running after you close the app window, so the NOOB device keeps working.
 Stop it in **Settings → Stop NOOB server**. Open the app again with `NOOB App.bat`.

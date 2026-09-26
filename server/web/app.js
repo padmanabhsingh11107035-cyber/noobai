@@ -87,7 +87,8 @@ function iconButton(icon, title, onClick, extra = "") {
 const loaders = {};
 function showPage() {
   const page = (location.hash || "#talk").slice(1);
-  const valid = document.getElementById("page-" + page) ? page : "talk";
+  let valid = document.getElementById("page-" + page) ? page : "talk";
+  if (valid === "settings" && !(serverStatus && serverStatus.user.is_owner)) valid = "talk";   // owner only
   document.querySelectorAll(".page").forEach((p) => p.classList.toggle("show", p.id === "page-" + valid));
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("active", a.dataset.page === valid));
   if (loaders[valid]) loaders[valid]();
@@ -422,6 +423,7 @@ function buildProfileForm() {
   });
 }
 loaders.about = async () => {
+  loadAccount();
   const profile = await api("/api/profile");
   document.querySelectorAll("#profileForm [data-field]").forEach((i) => (i.value = profile[i.dataset.field] || ""));
 };
@@ -588,7 +590,7 @@ async function pairDevice(d, btn) {
 
 // ---------------------------------------------------------------- SETTINGS
 let logTimer = 0;
-loaders.settings = async () => {
+async function loadAccount() {                       // "My account" card on the About Me page
   await refreshStatus();
   const status = serverStatus;
   if (!status) return;
@@ -597,7 +599,12 @@ loaders.settings = async () => {
   const linked = status.user.noob_username;
   $("noobLinkText").textContent = linked ? `NOOB account: @${linked} — you can use “Continue with NOOB”` : "NOOB account: not linked";
   $("linkNoob").hidden = Boolean(linked);
-  if (!status.user.is_owner) return;
+}
+
+loaders.settings = async () => {
+  await refreshStatus();
+  const status = serverStatus;
+  if (!status || !status.user.is_owner) { location.hash = "#talk"; return; }
   const s = await api("/api/settings");
   $("geminiKey").value = "";
   $("geminiKey").placeholder = s.gemini_key_set ? `Saved (${s.gemini_key_hint}) — paste a new key to replace` : "Paste your key";
@@ -672,7 +679,7 @@ $("linkNoob").onclick = async () => {
   try {
     const r = await api("/api/auth/noob/link", { method: "POST", json: { identifier: id.value.trim(), password: pw.value } });
     toast(`Linked to @${r.noob_username}`);
-    loaders.settings();
+    loadAccount();
   } catch (e) { toast(e.message, true); }
 };
 async function signOut() {

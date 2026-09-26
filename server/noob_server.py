@@ -123,6 +123,14 @@ PREFERRED_VOICES = {
 LOG_LINES = collections.deque(maxlen=400)
 
 
+def said(user_id, text):
+    """What someone said, for the log: only the owner's own words are shown; everyone else's stay private."""
+    user = memory.get_user(user_id) if user_id else None
+    if user and user["is_owner"]:
+        return text
+    return f"[private, {len(text or '')} characters]"
+
+
 def log(message):
     line = f"{datetime.now().strftime('%H:%M:%S')}  {message}"
     LOG_LINES.append(line)
@@ -235,7 +243,7 @@ def apply_memory_commands(reply, user_id):
     for kind, value in re.findall(r"\b(REMEMBER|FORGET)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET)\s*:|$)",
                                   commands, flags=re.DOTALL):
         if kind == "REMEMBER" and value:
-            log(f"   [memory] saved #{memory.add_fact(user_id, value)}: {value}")
+            log(f"   [memory] saved #{memory.add_fact(user_id, value)}: {said(user_id, value)}")
         elif kind == "FORGET":
             number = re.search(r"\d+", value)
             if number and memory.delete_fact(user_id, int(number.group())):
@@ -252,8 +260,8 @@ def search_request(reply):
     return match.group(1).strip() if match else None
 
 
-def web_search(query):
-    log(f"   [search] {query}")
+def web_search(query, user_id=None):
+    log(f"   [search] {said(user_id, query)}")
     try:
         results = DDGS().text(query, region="in-en", max_results=5)
     except Exception as e:
@@ -457,7 +465,7 @@ def converse(user_id, text=None, pcm=None):
         query = stream.search_query
         followup = history + [{"role": "user", "parts": [{"text": heard or "(voice message)"}]},
                               {"role": "model", "parts": [{"text": f"SEARCH: {query}"}]},
-                              {"role": "user", "parts": [{"text": web_search(query) +
+                              {"role": "user", "parts": [{"text": web_search(query, user_id) +
                                "\n\nNow answer my original question using these results. Do not search again."}]}]
         stream = AnswerStream(False, stream.lang)
         try:
@@ -476,7 +484,7 @@ def converse(user_id, text=None, pcm=None):
         return
     apply_memory_commands(stream.raw[stream.text_start:], user_id)
     memory.add_exchange(user_id, heard or "(voice message)", f"[{stream.lang}] {answer}")
-    log(f"NOOB ({stream.lang}, {noob_brain.last_model}, {time.time() - started:.1f} s): {answer}")
+    log(f"NOOB ({stream.lang}, {noob_brain.last_model}, {time.time() - started:.1f} s): {said(user_id, answer)}")
     yield ("done", answer, stream.lang, True)
 
 
@@ -583,7 +591,7 @@ def app_stream(user_id, name, text=None, pcm=None):
     def generate():
         for kind, value in in_background(spoken_stream(converse(user_id, text=text, pcm=pcm), voice_mp3)):
             if kind == "heard":
-                log(f"You ({name}, voice): {value}")
+                log(f"You ({name}, voice): {said(user_id, value)}")
                 line = {"type": "heard", "text": value}
             elif kind == "text":
                 line = {"type": "text", "text": value}
@@ -611,7 +619,7 @@ def ask():
         for kind, value in in_background(spoken_stream(converse(user_id, pcm=pcm),
                                                        lambda t, lang: any_audio_to_pcm(voice_mp3(t, lang)))):
             if kind == "heard":
-                log(f"You ({name}): {value}")
+                log(f"You ({name}): {said(user_id, value)}")
             elif kind == "audio":
                 yield value
     return Response(generate(), mimetype="application/octet-stream")
@@ -949,7 +957,7 @@ def api_chat():
     text = str(body().get("text", "")).strip()[:2000]
     if not text:
         abort(400)
-    log(f"You ({g.user['username']}, typed): {text}")
+    log(f"You ({g.user['username']}, typed): {said(g.user['id'], text)}")
     return app_stream(g.user["id"], g.user["username"], text=text)
 
 
