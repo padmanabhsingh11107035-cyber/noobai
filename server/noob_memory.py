@@ -11,6 +11,8 @@ Tables:
   profile       - each user's "About Me" details (name, age, allergies, ...)
   facts         - important things each user told NOOB ("Asha is allergic to penicillin")
   conversation  - every question and answer, so NOOB can continue where it left off
+  moods         - how the user seemed to feel (noticed by the AI from their words and tone of voice)
+  reviews       - the 5-star ratings people give NOOB AI
 """
 
 import os
@@ -65,6 +67,24 @@ class NoobMemory:
         if "noob_id" not in self._columns("users"):          # "Continue with NOOB" link
             self.db.execute("ALTER TABLE users ADD COLUMN noob_id TEXT")
             self.db.execute("ALTER TABLE users ADD COLUMN noob_username TEXT")
+        if "questions" not in self._columns("users"):        # questions asked (free limit, survey)
+            self.db.execute("ALTER TABLE users ADD COLUMN questions INTEGER NOT NULL DEFAULT 0")
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS moods (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                at      TEXT NOT NULL,
+                mood    TEXT NOT NULL,
+                score   INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS reviews (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                at      TEXT NOT NULL,
+                stars   INTEGER NOT NULL,
+                comment TEXT NOT NULL DEFAULT ''
+            );
+        """)
         self.db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_noob_id ON users (noob_id) WHERE noob_id IS NOT NULL")
         self.db.commit()
 
@@ -128,7 +148,7 @@ class NoobMemory:
             return row[0]
         return None
 
-    USER_FIELDS = ("id", "username", "name", "is_owner", "created_at", "noob_username")
+    USER_FIELDS = ("id", "username", "name", "is_owner", "created_at", "noob_username", "questions")
 
     def get_user(self, user_id):
         with self.lock:
@@ -164,9 +184,49 @@ class NoobMemory:
         with self.lock, self.db:
             cur = self.db.execute("DELETE FROM users WHERE id = ? AND is_owner = 0", (user_id,))
             if cur.rowcount:
-                for table in ("facts", "conversation", "profile"):
+                for table in ("facts", "conversation", "profile", "moods", "reviews"):
                     self.db.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
             return cur.rowcount > 0
+
+    # ---------------- questions, moods and ratings ----------------
+    def count_question(self, user_id):
+        """Adds one to the user's questions and returns the new total."""
+        with self.lock, self.db:
+            self.db.execute("UPDATE users SET questions = questions + 1 WHERE id = ?", (user_id,))
+            row = self.db.execute("SELECT questions FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row[0] if row else 0
+
+    def add_mood(self, user_id, mood, score):
+        with self.lock, self.db:
+            self.db.execute("INSERT INTO moods (user_id, at, mood, score) VALUES (?, ?, ?, ?)",
+                            (user_id, self._now(), mood, score))
+
+    def recent_moods(self, user_id, limit=30):
+        with self.lock:
+            rows = self.db.execute("SELECT at, mood, score FROM moods WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                                   (user_id, limit)).fetchall()
+        return list(reversed(rows))
+
+    def clear_moods(self, user_id):
+        with self.lock, self.db:
+            self.db.execute("DELETE FROM moods WHERE user_id = ?", (user_id,))
+
+    def has_reviewed(self, user_id):
+        with self.lock:
+            return self.db.execute("SELECT 1 FROM reviews WHERE user_id = ?", (user_id,)).fetchone() is not None
+
+    def add_review(self, user_id, stars, comment):
+        with self.lock, self.db:
+            self.db.execute("INSERT INTO reviews (user_id, at, stars, comment) VALUES (?, ?, ?, ?)",
+                            (user_id, self._now(), stars, comment))
+
+    def reviews_summary(self, limit=20):
+        with self.lock:
+            count, average = self.db.execute("SELECT COUNT(*), AVG(stars) FROM reviews").fetchone()
+            rows = self.db.execute("SELECT r.at, r.stars, r.comment, COALESCE(u.name, 'Someone') FROM reviews r "
+                                   "LEFT JOIN users u ON u.id = r.user_id ORDER BY r.id DESC LIMIT ?", (limit,)).fetchall()
+        return {"count": count, "average": round(average, 1) if average else None,
+                "latest": [{"at": a, "stars": st, "comment": c, "name": n} for a, st, c, n in rows]}
 
     # ---------------- profile ("About Me") ----------------
     def get_profile(self, user_id):

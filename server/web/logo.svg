@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- The NOOB AI logo: a friendly glowing AI core inside a hexagon, circled by three orbits
+       (voice, knowledge, memory) with a glowing node where each orbit meets the hexagon. -->
+  <defs>
+    <linearGradient id="nb-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111a3d"/>
+      <stop offset=".55" stop-color="#22175e"/>
+      <stop offset="1" stop-color="#3a1478"/>
+    </linearGradient>
+    <radialGradient id="nb-core" cx="38%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#ecfeff"/>
+      <stop offset=".22" stop-color="#67e8f9"/>
+      <stop offset=".55" stop-color="#7c5cff"/>
+      <stop offset="1" stop-color="#3b1f9e"/>
+    </radialGradient>
+    <linearGradient id="nb-ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset=".5" stop-color="#a78bfa"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <radialGradient id="nb-halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="nb-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#nb-bg)"/>
+  <circle cx="64" cy="64" r="46" fill="url(#nb-halo)"/>
+  <polygon points="64,14 107.3,39 107.3,89 64,114 20.7,89 20.7,39" fill="none" stroke="url(#nb-ring)" stroke-width="1.6" stroke-opacity=".45"/>
+  <polygon points="64,24 98.6,44 98.6,84 64,104 29.4,84 29.4,44" fill="none" stroke="#a78bfa" stroke-width="1" stroke-opacity=".25" stroke-dasharray="3 4"/>
+  <g fill="none" stroke="url(#nb-ring)" stroke-width="2.4" stroke-linecap="round" filter="url(#nb-glow)">
+    <ellipse cx="64" cy="64" rx="48" ry="16" transform="rotate(-30 64 64)"/>
+    <ellipse cx="64" cy="64" rx="48" ry="16" transform="rotate(30 64 64)"/>
+    <ellipse cx="64" cy="64" rx="48" ry="16" transform="rotate(90 64 64)"/>
+  </g>
+  <g filter="url(#nb-glow)">
+    <circle cx="105.6" cy="40" r="4.6" fill="#22d3ee"/>
+    <circle cx="22.4" cy="88" r="4.6" fill="#a78bfa"/>
+    <circle cx="64" cy="16" r="4.6" fill="#f472b6"/>
+    <circle cx="105.6" cy="88" r="2.6" fill="#e0e7ff"/>
+    <circle cx="22.4" cy="40" r="2.6" fill="#e0e7ff"/>
+    <circle cx="64" cy="112" r="2.6" fill="#e0e7ff"/>
+  </g>
+  <circle cx="64" cy="64" r="23" fill="url(#nb-core)" filter="url(#nb-glow)"/>
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="1.2"/>
+  <rect x="54.5" y="55" width="5.4" height="9" rx="2.7" fill="#ffffff"/>
+  <rect x="68.1" y="55" width="5.4" height="9" rx="2.7" fill="#ffffff"/>
+  <path d="M55.5 70.5 Q64 77.5 72.5 70.5" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+  <path d="M96 20 l2 5 5 2 -5 2 -2 5 -2 -5 -5 -2 5 -2z" fill="#ffffff" opacity=".9"/>
+</svg>

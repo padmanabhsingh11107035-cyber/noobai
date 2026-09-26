@@ -23,9 +23,14 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | General knowledge, today's date & time, live news / weather / scores | Google Gemini (free tier) + PC clock + free DuckDuckGo web search |
 | Works offline too | Automatic backup to a local AI (Ollama + Gemma 3) |
 | Healthcare knowledge with safety rules | Emergencies → 112 / 108, Tele MANAS 14416, no false diagnoses |
+| **Understands your mental well-being** | Notices how you feel from your words and your *tone of voice*, answers with care, checks in when you seem low for days; mood history on the Memory page (private, can be cleared) |
+| Knows about everything | Science, maths, history, coding, sports, films, law, money, cooking, travel... plus live web search for anything recent |
 | **Permanent memory** | Everything NOOB learns is saved in a local database and survives power-off |
 | **NOOB App**: About Me, Memory, Conversations, Devices, Settings | Web app (HTML + CSS + JavaScript) served by the NOOB server |
 | **Continue with NOOB** | Sign in with your NOOB social media account (nooob.xyz) — no new password needed |
+| Free trial for people without NOOB | Accounts made without a NOOB account get 5 free questions, then link NOOB for unlimited |
+| 5-star rating | After the first 15 questions, NOOB AI asks for a 1–5 star rating (the owner sees them in Settings) |
+| Animated 3D core and logo | A spinning wireframe globe with orbiting comets and a friendly blinking face (pure CSS 3D) |
 | **Accounts** — family and friends get their own NOOB | Sign in / create account; each person has their own memory, About Me and devices (new accounts need an invite code) |
 | Robot ⇄ app always know about each other | NOOB says hello to the PC every 15 s: the app shows it **Online / Offline**, and NOOB's screen shows whether the PC is on |
 | **Connect to nearby devices** | The app finds NOOB devices on your Wi-Fi and pairs with a 4-digit code on NOOB's screen |
@@ -273,10 +278,11 @@ The NOOB **device** still talks to the PC over your Wi-Fi; the web address is fo
 
 ### The "NOOB AI" button in the NOOB social media app
 
-In the NOOB social app (nooob.xyz), **Profile → ⋮ → NOOB AI** opens NOOB AI at `https://ai.nooob.xyz` in a new
-tab and signs you in automatically: the app hands over your NOOB login once (after `#` in the address, which is
+In the NOOB social app (nooob.xyz), **Profile → ⋮ → NOOB AI** opens NOOB AI (`https://ai.nooob.xyz`) inside
+the app and signs you in automatically: the app hands over your NOOB login once (after `#` in the address, which is
 never sent to a server), NOOB AI checks it with NOOB and forgets it. It works on any phone, tablet or computer.
-If the NOOB PC is off, the page cannot open — try again when it is on.
+If the NOOB PC is off, the app shows **"NOOB is sleeping"** with a **Wake up NOOB** button to check again.
+On a slow connection the sign-in page retries by itself and never waits forever.
 
 On phones, sound is only allowed after a tap: NOOB unlocks its voice on your first tap. If a phone still blocks it,
 the answer shows a **🔊 Play NOOB's voice** button.
@@ -290,6 +296,9 @@ NOOB is an **information** assistant, not a doctor. Its instructions make it:
 - Put emergencies first — chest pain, breathing trouble, stroke signs, heavy bleeding, poisoning,
   suicidal thoughts → *"Call 112 or 108 now"*, then brief first aid.
 - Give the **Tele MANAS 14416** helpline for mental-health crises.
+- Notice feelings (from words and tone of voice), respond with warmth first, offer one small coping idea, and
+  gently suggest a doctor or counsellor if low mood, panic or sleep trouble lasts two weeks or more. Mood notes are
+  private to each person and shown only to them.
 - Explain possibilities and warning signs instead of giving a definite diagnosis.
 - Give only standard label doses for common over-the-counter medicines, with warnings for children,
   pregnancy, the elderly, and kidney/liver disease; never advise stopping prescribed medicine.
@@ -367,6 +376,7 @@ noob-esp32-assistant/
         ├── noob-signin.html   ← automatic sign-in from the NOOB social app
         ├── style.css
         ├── app.js
+        ├── logo.svg           ← the NOOB AI logo
         └── loading.html       ← start-up screen
 ```
 

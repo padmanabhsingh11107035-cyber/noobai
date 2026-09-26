@@ -111,6 +111,7 @@ async function refreshStatus() {
     $("userRole").textContent = user.is_owner ? "Owner" : "Member";
     $("avatar").textContent = (user.name.trim()[0] || "?").toUpperCase();
     document.querySelectorAll(".owner-only").forEach((e) => (e.hidden = !user.is_owner));
+    showFreeNote(serverStatus.questions_left);
     const on = serverStatus.devices_online;
     $("deviceStatus").className = "device-status" + (on ? " on" : "");
     $("deviceStatusText").textContent = !serverStatus.devices ? "No NOOB device connected yet"
@@ -123,6 +124,45 @@ async function refreshStatus() {
   }
 }
 setInterval(refreshStatus, 5000);
+
+// People without a NOOB account get a few free questions; this shows how many are left.
+function showFreeNote(left) {
+  const note = $("freeNote");
+  if (left === null || left === undefined) { note.hidden = true; return; }
+  note.hidden = false;
+  note.className = "free-note" + (left === 0 ? " out" : "");
+  note.replaceChildren(el("span", "", left === 0 ? "You've used your free questions. "
+    : `Free trial: ${left} question${left === 1 ? "" : "s"} left. `));
+  const link = el("a", "", "Link your NOOB account for unlimited");
+  link.href = "#about";
+  note.append(link);
+}
+
+// ---------------------------------------------------------------- SURVEY
+let surveyStars = 0;
+function showSurvey() {
+  surveyStars = 0;
+  $("surveyComment").value = "";
+  $("surveySend").disabled = true;
+  paintStars(0);
+  $("survey").hidden = false;
+}
+function paintStars(n) {
+  $("stars").querySelectorAll("button").forEach((b) => b.classList.toggle("on", Number(b.dataset.star) <= n));
+}
+$("stars").querySelectorAll("button").forEach((b) => {
+  b.onclick = () => { surveyStars = Number(b.dataset.star); paintStars(surveyStars); $("surveySend").disabled = false; };
+  b.onmouseenter = () => paintStars(Number(b.dataset.star));
+  b.onmouseleave = () => paintStars(surveyStars);
+});
+$("surveyLater").onclick = () => { $("survey").hidden = true; };
+$("surveySend").onclick = async () => {
+  try {
+    await api("/api/review", { method: "POST", json: { stars: surveyStars, comment: $("surveyComment").value.trim() } });
+    $("survey").hidden = true;
+    toast(surveyStars >= 4 ? "Thank you! 💜" : "Thank you — we'll make NOOB better");
+  } catch (e) { toast(e.message, true); }
+};
 
 // ---------------------------------------------------------------- TALK
 const orb = $("orb");
@@ -285,7 +325,7 @@ function stopSpeaking() {
 async function streamAnswer(path, request, fromVoice) {
   setState("thinking");
   const typing = typingBubble();
-  let bubble = null, ok = false, blocked = false, streamDone = false, playing = false, cancelled = false;
+  let bubble = null, ok = false, blocked = false, streamDone = false, playing = false, cancelled = false, wantSurvey = false;
   const queue = [], clips = [];
   let allPlayed;
   const finished = new Promise((resolve) => (allPlayed = resolve));
@@ -332,6 +372,8 @@ async function streamAnswer(path, request, fromVoice) {
       if (!blocked && !cancelled) { queue.push(url); playNext(); }
     } else if (ev.type === "done") {
       ok = ev.ok;
+      if ("questions_left" in ev) showFreeNote(ev.questions_left);
+      if (ev.survey) wantSurvey = true;
       const b = noobBubble();
       if (!b.textContent) b.textContent = ev.answer;
       if (!ev.ok) b.classList.add("error");
@@ -383,6 +425,7 @@ async function streamAnswer(path, request, fromVoice) {
   }
   if (currentReply === reply) currentReply = null;
   setState("idle");
+  if (wantSurvey) { $("convMode").checked = false; setTimeout(showSurvey, 600); return; }
   if (fromVoice && ok && !blocked && !cancelled && $("convMode").checked) setTimeout(startListening, 400);  // keep talking
 }
 
@@ -471,7 +514,41 @@ function renderFacts() {
     list.append(item);
   });
 }
-loaders.memory = async () => { facts = await api("/api/facts"); renderFacts(); };
+loaders.memory = async () => {
+  facts = await api("/api/facts");
+  renderFacts();
+  renderMoods(await api("/api/moods"));
+};
+
+const MOOD_FACES = ["", "😢", "🙁", "😐", "🙂", "😄"];
+function renderMoods(moods) {
+  const strip = $("moodStrip");
+  strip.replaceChildren();
+  if (!moods.length) {
+    strip.append(el("div", "empty", "Nothing yet. Just talk to NOOB — it will notice how you feel."));
+    $("moodSummary").textContent = "";
+    return;
+  }
+  moods.slice(-30).forEach((m) => {
+    const dot = el("div", `mood m${m.score}`);
+    dot.append(el("span", "face", MOOD_FACES[m.score] || "🙂"), el("span", "word", m.mood), el("small", "", m.at.slice(5, 16)));
+    dot.title = `${m.at} — ${m.mood} (${m.score}/5)`;
+    strip.append(dot);
+  });
+  strip.scrollLeft = strip.scrollWidth;
+  const recent = moods.slice(-7);
+  const avg = recent.reduce((t, m) => t + m.score, 0) / recent.length;
+  $("moodSummary").textContent = avg >= 3.8 ? "Lately you've mostly seemed happy. Keep it up! 🌟"
+    : avg >= 2.8 ? "Lately you've seemed mostly okay."
+    : "Lately you've seemed low or stressed. NOOB is here to talk any time — and if it lasts, please talk to someone you trust or call Tele MANAS on 14416 (free).";
+}
+$("clearMoods").onclick = async () => {
+  if (await modal({ title: "Clear your mood history?", text: "NOOB will forget how you've been feeling so far.", ok: "Clear", danger: true })) {
+    await api("/api/moods", { method: "DELETE" });
+    toast("Mood history cleared");
+    loaders.memory();
+  }
+};
 $("factSearch").oninput = renderFacts;
 $("addFact").onsubmit = async (e) => {
   e.preventDefault();
@@ -611,6 +688,7 @@ loaders.settings = async () => {
   $("inviteCode").textContent = s.invite_code;
   $("openToNoob").checked = s.open_to_noob_users;
   renderUsers(s.users);
+  renderRatings(s.reviews);
   if (status) {
     $("brainStatus").textContent = status.gemini ? `Using Google Gemini (${status.gemini_model}) — free tier.`
       : "No Gemini key yet — NOOB uses the offline brain (Ollama) if it is installed.";
@@ -633,12 +711,25 @@ loaders.settings = async () => {
   refreshLog();
   logTimer = setInterval(refreshLog, 2000);
 };
+function renderRatings(r) {
+  if (!r || !r.count) { $("ratingSummary").textContent = "No ratings yet."; $("ratingList").replaceChildren(); return; }
+  $("ratingSummary").textContent = `★ ${r.average} out of 5 · ${r.count} rating${r.count === 1 ? "" : "s"}`;
+  $("ratingList").replaceChildren(...r.latest.map((x) => {
+    const item = el("div", "item");
+    const grow = el("div", "grow");
+    grow.append(el("div", "title", "★".repeat(x.stars) + "☆".repeat(5 - x.stars) + "  " + x.name),
+      el("div", "meta", (x.comment ? `“${x.comment}” · ` : "") + x.at));
+    item.append(grow);
+    return item;
+  }));
+}
 function renderUsers(users) {
   $("userList").replaceChildren(...users.map((u) => {
     const item = el("div", "item");
     const avatar = el("div", "icon-circle", (u.name.trim()[0] || "?").toUpperCase());
     const grow = el("div", "grow");
-    grow.append(el("div", "title", u.name), el("div", "meta", `@${u.username} · joined ${u.created_at}`));
+    grow.append(el("div", "title", u.name), el("div", "meta", `@${u.username} · joined ${u.created_at}` +
+      ` · ${u.questions || 0} question${u.questions === 1 ? "" : "s"}` + (u.noob_username ? ` · NOOB @${u.noob_username}` : "")));
     item.append(avatar, grow);
     if (u.is_owner) item.append(el("span", "badge ok", "Owner"));
     else item.append(iconButton("del", "Remove account", async () => {

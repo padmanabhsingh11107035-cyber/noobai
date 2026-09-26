@@ -7,14 +7,32 @@ straight away. The NOOB password is never saved or logged by the assistant.
 """
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 NOOB_SOCIAL_URL = "https://abffssydapumuhwgzeck.supabase.co"
 # The website's public "publishable" key: safe to share, it can only do what NOOB's security rules allow.
 NOOB_SOCIAL_KEY = "sb_publishable_g20GG46EXeMr1jcNwVJtmw_rAZKsuA3"
-TIMEOUT = 15
+TIMEOUT = (6, 15)          # seconds to connect, seconds to wait for the answer
+
+# One shared connection to NOOB that stays open between sign-ins (no new DNS lookup and secure handshake
+# every time, which is slow on a phone hotspot). A connection that fails to open is retried twice.
+_http = requests.Session()
+_http.mount("https://", HTTPAdapter(pool_maxsize=8, max_retries=Retry(
+    total=2, connect=2, read=0, status=0, backoff_factor=0.4, allowed_methods=None)))
+_pool = ThreadPoolExecutor(max_workers=4)
+
+
+def warm_up():
+    """Opens the connection to NOOB early (called when the sign-in page loads), so signing in is quick."""
+    try:
+        _http.get(f"{NOOB_SOCIAL_URL}/auth/v1/health", headers=_headers(), timeout=(5, 5))
+    except Exception:                                   # only a head start; signing in still works without it
+        pass
 
 
 def details_from(me):
@@ -73,14 +91,14 @@ def verify_login(identifier, password):
         raise NoobSocialError("Enter your NOOB username (or email) and password.")
     try:
         # 1. NOOB accounts log in with a private address; find it from the username or email.
-        r = requests.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/resolve_login_email", headers=_headers(),
+        r = _http.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/resolve_login_email", headers=_headers(),
                           json={"identifier": identifier}, timeout=TIMEOUT)
         if r.status_code != 200:
             raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
         login_email = r.json()
 
         # 2. Check the password.
-        r = requests.post(f"{NOOB_SOCIAL_URL}/auth/v1/token?grant_type=password", headers=_headers(),
+        r = _http.post(f"{NOOB_SOCIAL_URL}/auth/v1/token?grant_type=password", headers=_headers(),
                           json={"email": login_email, "password": password}, timeout=TIMEOUT)
         if r.status_code == 429:
             raise NoobSocialError("Too many attempts. Please wait a moment and try again.")
@@ -94,12 +112,12 @@ def verify_login(identifier, password):
 
         # 3. Read the account's name, then end this one login (other devices stay signed in).
         try:
-            r = requests.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/get_my_user", headers=_headers(token), json={},
+            r = _http.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/get_my_user", headers=_headers(token), json={},
                               timeout=TIMEOUT)
             me = r.json() if r.status_code == 200 and isinstance(r.json(), dict) else {}
         finally:
             try:
-                requests.post(f"{NOOB_SOCIAL_URL}/auth/v1/logout?scope=local", headers=_headers(token), timeout=TIMEOUT)
+                _http.post(f"{NOOB_SOCIAL_URL}/auth/v1/logout?scope=local", headers=_headers(token), timeout=TIMEOUT)
             except requests.RequestException:
                 pass
     except (requests.RequestException, ValueError, KeyError, TypeError):      # no internet or an unexpected reply
@@ -120,14 +138,21 @@ def verify_token(token):
     if not token or len(token) > 4000:
         raise NoobSocialError("Please sign in.")
     try:
-        r = requests.get(f"{NOOB_SOCIAL_URL}/auth/v1/user", headers=_headers(token), timeout=TIMEOUT)
+        # Both questions go to NOOB at the same time (half the waiting): is this login real and still
+        # signed in, and whose account is it.
+        check = _pool.submit(_http.get, f"{NOOB_SOCIAL_URL}/auth/v1/user", headers=_headers(token), timeout=TIMEOUT)
+        details = _pool.submit(_http.post, f"{NOOB_SOCIAL_URL}/rest/v1/rpc/get_my_user", headers=_headers(token),
+                               json={}, timeout=TIMEOUT)
+        r = check.result()
         if r.status_code in (401, 403):
             raise NoobSocialError("Your NOOB login has expired. Please sign in.")
         if r.status_code != 200:
             raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
         user_id = r.json()["id"]
-        r = requests.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/get_my_user", headers=_headers(token), json={}, timeout=TIMEOUT)
+        r = details.result()
         me = r.json() if r.status_code == 200 and isinstance(r.json(), dict) else {}
+        if me.get("id") not in (None, user_id):          # never mix up two accounts
+            raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
     except (requests.RequestException, ValueError, KeyError, TypeError):
         raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
     if me.get("isSuspended"):

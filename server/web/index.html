@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NOOB</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%2322d3ee'/><stop offset='1' stop-color='%237c5cff'/></radialGradient></defs><circle cx='32' cy='32' r='28' fill='url(%23g)'/></svg>">
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
 
 <aside class="sidebar">
   <div class="brand">
-    <div class="brand-orb"></div>
+    <img class="brand-logo" src="/static/logo.svg" alt="">
     <div><div class="brand-name">NOOB</div><div class="brand-sub">AI Voice Assistant</div></div>
   </div>
   <nav>
@@ -40,9 +40,10 @@
         <p class="muted" id="subGreeting">Tap the orb and talk to me — in any language.</p>
         <div class="device-status" id="deviceStatus"><span class="dot"></span><span id="deviceStatusText">No NOOB device connected yet</span></div>
         <button class="orb-wrap" id="orbBtn" aria-label="Talk to NOOB">
-          <div class="orb idle" id="orb"><div class="orb-core"></div><div class="orb-ring"></div><div class="orb-ring r2"></div></div>
+          <div class="orb idle" id="orb"><div class="ai3d" aria-hidden="true"><div class="ai3d-scene"><div class="ai3d-globe"><i></i><i></i><i></i><i></i><i></i><i></i><b></b><b></b><b></b><b></b><b></b></div><div class="ai3d-orbit o1"><u></u></div><div class="ai3d-orbit o2"><u></u></div><div class="ai3d-orbit o3"><u></u></div></div></div><div class="orb-core"><div class="eyes"><i></i><i></i></div></div><div class="orb-ring"></div><div class="orb-ring r2"></div></div>
         </button>
         <div class="status-line" id="statusLine">Tap to talk</div>
+        <div class="free-note" id="freeNote" hidden></div>
         <div class="caption" id="caption" hidden>
           <div class="caption-heard" id="captionHeard"></div>
           <div class="caption-answer" id="captionAnswer"></div>
@@ -55,7 +56,7 @@
       <div class="talk-right card">
         <div class="chat" id="chat">
           <div class="chat-empty" id="chatEmpty">
-            <div class="brand-orb big"></div>
+            <img class="brand-logo big" src="/static/logo.svg" alt="">
             <p>Your conversation with NOOB appears here.</p>
             <div class="chips">
               <button class="chip">What's the date today?</button>
@@ -102,6 +103,15 @@
       <button class="btn primary" type="submit">Add</button>
     </form>
     <div class="list" id="factList"></div>
+    <div class="card mood-card">
+      <div class="row between">
+        <div><h2>How you've been feeling</h2>
+          <p class="muted small">NOOB notices your mood from your words and your tone of voice, so it can check in on you like a friend. Only you can see this.</p></div>
+        <button class="btn danger ghost" id="clearMoods">Clear</button>
+      </div>
+      <div class="mood-strip" id="moodStrip"></div>
+      <p class="muted small" id="moodSummary"></p>
+    </div>
   </section>
 
   <!-- ============ CONVERSATIONS ============ -->
@@ -162,6 +172,11 @@
         <h3 class="section-title">Accounts</h3>
         <div class="list" id="userList"></div>
       </div>
+    <div class="card" style="margin-top:18px">
+      <h2>Ratings</h2>
+      <p class="muted" id="ratingSummary">No ratings yet.</p>
+      <div class="list" id="ratingList"></div>
+    </div>
     <div class="card owner-only" style="margin-top:18px">
       <h2>Live log</h2>
       <pre class="log" id="log"></pre>
@@ -172,7 +187,7 @@
 <!-- server offline overlay -->
 <div class="overlay" id="offline" hidden>
   <div class="card center">
-    <div class="brand-orb big dim"></div>
+    <img class="brand-logo big dim" src="/static/logo.svg" alt="">
     <h2>NOOB server is not running</h2>
     <p class="muted">Double-click <b>NOOB App.bat</b> to start it again. This page reconnects automatically.</p>
   </div>
@@ -185,6 +200,20 @@
     <p class="muted" id="modalText"></p>
     <div id="modalBody"></div>
     <div class="row end"><button class="btn ghost" id="modalCancel">Cancel</button><button class="btn primary" id="modalOk">OK</button></div>
+  </div>
+</div>
+
+<!-- 5-star rating, asked after the first questions (like NOOB customer support) -->
+<div class="overlay" id="survey" hidden>
+  <div class="card modal survey">
+    <img class="brand-logo big" src="/static/logo.svg" alt="">
+    <h2>How is NOOB AI so far?</h2>
+    <p class="muted">You've asked me quite a few questions. Please rate your experience.</p>
+    <div class="stars" id="stars" role="radiogroup" aria-label="Rating">
+      <button type="button" data-star="1" aria-label="1 star">★</button><button type="button" data-star="2" aria-label="2 stars">★</button><button type="button" data-star="3" aria-label="3 stars">★</button><button type="button" data-star="4" aria-label="4 stars">★</button><button type="button" data-star="5" aria-label="5 stars">★</button>
+    </div>
+    <textarea id="surveyComment" rows="3" maxlength="500" placeholder="Anything we can do better? (optional)"></textarea>
+    <div class="row end"><button class="btn ghost" id="surveyLater">Later</button><button class="btn primary" id="surveySend" disabled>Send</button></div>
   </div>
 </div>
 

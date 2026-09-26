@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>NOOB AI · Signing in</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%2322d3ee'/><stop offset='1' stop-color='%237c5cff'/></radialGradient></defs><circle cx='32' cy='32' r='28' fill='url(%23g)'/></svg>">
+  <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="auth-body">
 <div class="bg-glow"></div>
 <div class="card auth-card handoff">
-  <div class="orb idle auth-orb small-orb"><div class="orb-core"></div></div>
+  <div class="ai3d handoff-3d" aria-hidden="true"><div class="ai3d-glow"></div><div class="ai3d-scene"><div class="ai3d-globe"><i></i><i></i><i></i><i></i><i></i><i></i><b></b><b></b><b></b><b></b><b></b></div><div class="ai3d-orbit o1"><u></u></div><div class="ai3d-orbit o2"><u></u></div><div class="ai3d-orbit o3"><u></u></div></div><div class="ai3d-core"><div class="eyes"><i></i><i></i></div></div><span class="ai3d-spark"></span><span class="ai3d-spark"></span><span class="ai3d-spark"></span></div>
   <h2 id="title">Signing you in with NOOB…</h2>
   <p class="muted" id="text">One moment.</p>
   <form id="inviteForm" hidden>
@@ -19,6 +19,7 @@
       <input id="invite" maxlength="9" placeholder="XXXX-XXXX" autocapitalize="characters"></label>
     <button class="btn primary wide-btn" type="submit">Continue</button>
   </form>
+  <button class="btn primary wide-btn" id="retry" type="button" hidden>Try again</button>
   <a class="btn ghost wide-btn" id="manual" href="/login" hidden>Sign in another way</a>
 </div>
 <script>
@@ -29,27 +30,39 @@
   const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   history.replaceState(null, "", "/noob-signin");
 
-  function show(title, text, { invite = false, manual = true } = {}) {
+  function show(title, text, { invite = false, manual = true, retry = false } = {}) {
     $("title").textContent = title;
     $("text").textContent = text;
     $("inviteForm").hidden = !invite;
+    $("retry").hidden = !retry;
     $("manual").hidden = !manual;
   }
 
-  async function signIn(invite = "") {
+  // Never waits forever: a slow internet gets one quiet automatic retry, then a "Try again" button.
+  async function signIn(invite = "", attempt = 1) {
+    show("Signing you in with NOOB…", attempt > 1 ? "Still trying — the internet is a little slow…" : "One moment.", { manual: false });
+    const controller = new AbortController();
+    const slow = setTimeout(() => $("text").textContent = "Almost there — the internet is a little slow…", 5000);
+    const stop = setTimeout(() => controller.abort(), 20000);
     try {
       const r = await fetch("/api/auth/noob-token", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, invite }) });
+        body: JSON.stringify({ token, invite }), signal: controller.signal });
       const data = await r.json();
-      if (data.ok) { location.replace("/app"); return; }
+      if (data.ok) { $("text").textContent = "Opening NOOB AI…"; location.replace("/app"); return; }
       if (data.needs_invite) show("Welcome to NOOB AI!", data.error, { invite: true });
-      else show("Could not sign you in", data.error || "Something went wrong.");
+      else if (/reach NOOB/i.test(data.error || "") && attempt < 2) { clearTimeout(slow); clearTimeout(stop); return signIn(invite, attempt + 1); }
+      else show("Could not sign you in", data.error || "Something went wrong.", { retry: !/expired|suspended/i.test(data.error || "") });
     } catch {
-      show("NOOB AI is not reachable", "The NOOB AI server may be switched off. Try again later.");
+      if (attempt < 2) { clearTimeout(slow); clearTimeout(stop); return signIn(invite, attempt + 1); }
+      show("NOOB AI is taking too long", "The internet may be slow, or NOOB AI's computer may be switched off.", { retry: true });
+    } finally {
+      clearTimeout(slow);
+      clearTimeout(stop);
     }
   }
 
-  $("inviteForm").onsubmit = (e) => { e.preventDefault(); show("Signing you in with NOOB…", "One moment.", { manual: false }); signIn($("invite").value.trim()); };
+  $("retry").onclick = () => signIn($("invite").value.trim());
+  $("inviteForm").onsubmit = (e) => { e.preventDefault(); signIn($("invite").value.trim()); };
   if (token) signIn(); else location.replace("/login");
 </script>
 </body>

@@ -57,7 +57,9 @@ RECENT_MESSAGES = 12             # last 6 questions + answers are sent with each
 MEMORY_FILE = os.environ.get("NOOB_MEMORY_FILE", os.path.join(HERE, "noob_memory.db"))
 SAMPLE_RATE = 16000              # must match the ESP32 code
 PORT = 5000
-VERSION = "1.0"
+VERSION = "1.1"
+FREE_QUESTIONS = 5               # people without a NOOB account (and not the owner) can ask this many questions
+SURVEY_AFTER = 15                # after this many questions NOOB asks for a 5-star rating (then every 25 until rated)
 HINDI_HINT = "नमस्ते, यह बातचीत हिंदी में है।"
 
 SYSTEM_PROMPT = """You are NOOB, a warm, cheerful female AI friend who talks with the user by voice, like a smart speaker.
@@ -74,7 +76,12 @@ Your answers are converted to speech, so:
   script (for example Hindi written in Urdu script). Understand the intended meaning.
 - If the question is unclear, ask one short clarifying question.
 
-You have broad knowledge of every subject, and you are especially knowledgeable about healthcare:
+You know about everything: science, maths, history, geography, technology and coding, space, nature, current affairs,
+sports, films and music, books, law and government, money and business basics, cooking, travel, languages, exams and
+careers, religions and cultures, and everyday life. Explain things simply, like a clever friend, and for anything
+recent or that may have changed, use the live information rule below.
+
+You are especially knowledgeable about healthcare:
 symptoms, common illnesses, first aid, nutrition, fitness, sleep, mental well-being, pregnancy and child care,
 chronic conditions like diabetes and blood pressure, how medicines work, common side effects and interactions,
 vaccines, and when a person should see a doctor.
@@ -88,6 +95,20 @@ Health safety rules (always follow):
 - For medicine doses, give only standard label information for common over-the-counter medicines, and remind the user that doses differ
   for children, pregnancy, elderly people and people with kidney or liver problems. Never suggest stopping a prescribed medicine without a doctor.
 - When something needs a doctor, say so plainly and say how urgently.
+
+Emotional well-being (you are also a gentle mental-health companion):
+- In every conversation, quietly notice how the user seems to feel from their words and, for voice messages, from their
+  tone of voice (for example shaky, flat, tired, tearful, tense, angry, excited or cheerful).
+- If they seem low, stressed, anxious, lonely, angry or very tired, respond with warmth first: name the feeling kindly,
+  gently ask what is going on, and offer one small helpful idea (slow breathing, a short walk, water and rest, talking to
+  someone they trust, writing their thoughts down). Do not lecture and do not diagnose.
+- Use the mood notes below to notice patterns over days (for example several stressed days in a row) and gently check in.
+  If low mood, hopelessness, panic or sleep trouble has lasted two weeks or more, kindly suggest talking to a doctor or
+  counsellor and mention the free Tele MANAS helpline 14416.
+- If the user mentions self-harm or suicide, follow the health safety rules at once (112 and Tele MANAS 14416) and stay with them kindly.
+- When the user's message shows a clear feeling, add one line AFTER your whole answer (after any REMEMBER or FORGET lines):
+  MOOD: <one English word for how they seem> <a number from 1 to 5: 1 very low or distressed, 2 low, 3 okay, 4 good, 5 very happy>
+  for example "MOOD: stressed 2" or "MOOD: excited 5". Leave it out when there is no sign of a feeling. It is never spoken.
 
 Live information:
 - The current date and time are given at the end of these instructions. Use them for questions about the date, day or time.
@@ -103,7 +124,7 @@ Permanent memory (survives power-off):
   REMEMBER: <the fact as one short English sentence that says who it is about>
 - If the user asks you to forget something, or a fact is no longer true, add a line:  FORGET: <id number>
   To update a fact, FORGET the old id and REMEMBER the new fact.
-- REMEMBER and FORGET lines are never spoken. Never REMEMBER something already in your memory list or profile.
+- REMEMBER, FORGET and MOOD lines are never spoken. Never REMEMBER something already in your memory list or profile.
 - Use what you remember to personalise answers, especially health answers (allergies, conditions, medicines, age).
 - Private details such as phone numbers, email and home address: use them only when the user asks about them.
 - When the profile has a birthday, work out the user's age from it and today's date; wish them on their birthday.
@@ -253,16 +274,20 @@ def memory_prompt(user_id):
     if facts:
         lines = "\n".join(f"#{fid} (saved {saved_at}): {fact}" for fid, saved_at, fact in facts)
         text += f"\n\nYour memory list (things the user told you earlier; #number = id):\n{lines}"
+    moods = memory.recent_moods(user_id, 12)
+    if moods:
+        lines = "; ".join(f"{at} {mood} ({score}/5)" for at, mood, score in moods)
+        text += f"\n\nMood notes (how the user seemed in earlier conversations, oldest first): {lines}"
     return text or "\n\nYou do not know anything about the user yet."
 
 
 def apply_memory_commands(reply, user_id):
     """Saves REMEMBER facts, deletes FORGET ids, and returns the answer without those commands."""
-    match = re.search(r"\b(?:REMEMBER|FORGET)\s*:", reply)
+    match = MEMORY_MARK.search(reply)
     if not match:
         return reply.strip()
     answer, commands = reply[:match.start()], reply[match.start():]
-    for kind, value in re.findall(r"\b(REMEMBER|FORGET)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET)\s*:|$)",
+    for kind, value in re.findall(r"\b(REMEMBER|FORGET|MOOD)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET|MOOD)\s*:|$)",
                                   commands, flags=re.DOTALL):
         if kind == "REMEMBER" and value:
             log(f"   [memory] saved #{memory.add_fact(user_id, value)}: {said(user_id, value)}")
@@ -270,6 +295,11 @@ def apply_memory_commands(reply, user_id):
             number = re.search(r"\d+", value)
             if number and memory.delete_fact(user_id, int(number.group())):
                 log(f"   [memory] forgot #{number.group()}")
+        elif kind == "MOOD":
+            mood = re.match(r"([^\W\d_][\w-]{0,29})\W+([1-5])\b", value)
+            if mood:
+                memory.add_mood(user_id, mood.group(1).lower(), int(mood.group(2)))
+                log(f"   [mood] noted: {said(user_id, mood.group(1).lower() + ' ' + mood.group(2))}")
     return answer.strip()
 
 
@@ -301,7 +331,7 @@ Then write your reply on the next line, starting with the language tag. If the r
 write "HEARD:" with nothing after it, and ask the user to say it again."""
 
 SENTENCE_END = re.compile(r"[.!?।॥]+[\"'”’)\]]*(?:\s+|$)|\n+")
-MEMORY_MARK = re.compile(r"\b(?:REMEMBER|FORGET)\s*:")
+MEMORY_MARK = re.compile(r"\b(?:REMEMBER|FORGET|MOOD)\s*:")
 LANG_TAG = re.compile(r"\s*\[([a-zA-Z]{2,3})(?:-[a-zA-Z]+)?\]\s*")
 
 
@@ -318,7 +348,7 @@ def split_sentences(text):
 
 class AnswerStream:
     """Reads the AI's answer as it streams in and hands out finished sentences to speak at once.
-    Handles the HEARD line (voice), a SEARCH request, the [language] tag and REMEMBER/FORGET lines."""
+    Handles the HEARD line (voice), a SEARCH request, the [language] tag and REMEMBER/FORGET/MOOD lines."""
 
     def __init__(self, voice, fallback_lang="en"):
         self.voice = voice
@@ -329,7 +359,7 @@ class AnswerStream:
         self.lang = fallback_lang
         self.search_query = None
         self.spoken = 0
-        self.stopped = False                          # REMEMBER/FORGET reached: nothing more to speak
+        self.stopped = False                          # REMEMBER/FORGET/MOOD reached: nothing more to speak
 
     def feed(self, piece="", final=False):
         """Returns a list of events: ("heard", text) and ("sentence", text, lang)."""
@@ -430,6 +460,10 @@ def converse(user_id, text=None, pcm=None):
     each sentence of the answer is ready, and finally ("done", answer, lang, ok)."""
     voice = pcm is not None
     started = time.time()
+    if questions_left(user_id) == 0:                  # free questions used up: ask them to link a NOOB account
+        yield ("sentence", LIMIT_REACHED, "en")
+        yield ("done", LIMIT_REACHED, "en", False, {"limit": True, "questions_left": 0})
+        return
     system = SYSTEM_PROMPT + memory_prompt(user_id) + f"\n\nCurrent date and time (India): {now_text()}"
     if voice:
         audio = np.frombuffer(pcm, dtype=np.int16)
@@ -507,7 +541,20 @@ def converse(user_id, text=None, pcm=None):
     apply_memory_commands(stream.raw[stream.text_start:], user_id)
     memory.add_exchange(user_id, heard or "(voice message)", f"[{stream.lang}] {answer}")
     log(f"NOOB ({stream.lang}, {noob_brain.last_model}, {time.time() - started:.1f} s): {said(user_id, answer)}")
-    yield ("done", answer, stream.lang, True)
+    asked = memory.count_question(user_id)
+    extra = {"questions_left": questions_left(user_id)}
+    if (asked == SURVEY_AFTER or (asked > SURVEY_AFTER and (asked - SURVEY_AFTER) % 25 == 0)) \
+            and not memory.has_reviewed(user_id):
+        extra["survey"] = True                        # the app shows the 5-star rating card
+    yield ("done", answer, stream.lang, True, extra)
+
+
+def questions_left(user_id):
+    """None = no limit (the owner and people signed in with NOOB); otherwise free questions left."""
+    user = memory.get_user(user_id) or {}
+    if user.get("is_owner") or user.get("noob_username"):
+        return None
+    return max(0, FREE_QUESTIONS - int(user.get("questions") or 0))
 
 
 # ------------------------------ step 3: answer -> speech ------------------------------
@@ -544,6 +591,8 @@ def pcm_to_wav(pcm):
 
 NOT_HEARD = "Sorry, I did not hear anything. Please try again."
 NO_BRAIN = "Sorry, I cannot reach my brain right now. Please check the internet and try again."
+LIMIT_REACHED = (f"You have used your {FREE_QUESTIONS} free questions. To keep talking with me, link your NOOB account "
+                 "in About Me, or sign in with Continue with NOOB. It is free!")
 
 
 def voice_mp3(text, lang):
@@ -620,8 +669,8 @@ def app_stream(user_id, name, text=None, pcm=None):
             elif kind == "audio":
                 line = {"type": "audio", "mime": "audio/mpeg", "data": base64.b64encode(value).decode()}
             else:
-                answer, lang, ok = value
-                line = {"type": "done", "answer": answer, "lang": lang, "ok": ok}
+                answer, lang, ok = value[:3]
+                line = {"type": "done", "answer": answer, "lang": lang, "ok": ok, **(value[3] if len(value) > 3 else {})}
             yield json.dumps(line, ensure_ascii=False) + "\n"
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
@@ -847,6 +896,7 @@ def api_noob_login():
 @app.get("/noob-signin")
 def noob_signin_page():
     """Where the "NOOB AI" button in the NOOB social media app lands (the login token is after '#')."""
+    threading.Thread(target=noob_social.warm_up, daemon=True).start()     # a head start for the sign-in check
     return page("noob-signin.html")
 
 
@@ -968,6 +1018,7 @@ def api_status():
                    facts=len(memory.all_facts(g.user["id"])), messages=len(memory.recent_log(g.user["id"], 100000)),
                    user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"]),
                          "noob_username": g.user.get("noob_username") or ""},
+                   questions_left=questions_left(g.user["id"]), free_questions=FREE_QUESTIONS,
                    profile_name=memory.get_profile(g.user["id"]).get("Name", "") or g.user["name"],
                    devices=len(devices), devices_online=sum(d["online"] for d in devices),
                    languages=len(VOICES), time=now_text(), online_url=noob_tunnel.public_url())
@@ -1048,6 +1099,37 @@ def api_fact_delete(fact_id):
     return jsonify(ok=memory.delete_fact(g.user["id"], fact_id))
 
 
+@app.get("/api/moods")
+@signed_in
+def api_moods():
+    return jsonify([{"at": at, "mood": mood, "score": score} for at, mood, score in memory.recent_moods(g.user["id"], 60)])
+
+
+@app.delete("/api/moods")
+@signed_in
+def api_moods_clear():
+    memory.clear_moods(g.user["id"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/review")
+@signed_in
+def api_review():
+    """The 5-star rating card that appears after the first questions (like NOOB customer support's)."""
+    data = body()
+    try:
+        stars = int(data.get("stars", 0))
+    except (TypeError, ValueError):
+        stars = 0
+    if not 1 <= stars <= 5:
+        return jsonify(error="Choose from 1 to 5 stars."), 400
+    if memory.has_reviewed(g.user["id"]):
+        return jsonify(ok=True, already=True)
+    memory.add_review(g.user["id"], stars, str(data.get("comment", "")).strip()[:500])
+    log(f"   [rating] {g.user['username']} gave NOOB AI {stars} star{'s' if stars > 1 else ''}")
+    return jsonify(ok=True)
+
+
 @app.get("/api/conversation")
 @signed_in
 def api_conversation():
@@ -1068,7 +1150,8 @@ def api_settings_get():
     s = settings()
     key = s["gemini_api_key"]
     return jsonify(gemini_key_set=bool(key), gemini_key_hint=("••••" + key[-4:]) if key else "",
-                   invite_code=s["invite_code"], open_to_noob_users=s["open_to_noob_users"], users=memory.all_users())
+                   invite_code=s["invite_code"], open_to_noob_users=s["open_to_noob_users"], users=memory.all_users(),
+                   reviews=memory.reviews_summary())
 
 
 @app.put("/api/settings")
