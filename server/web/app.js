@@ -18,7 +18,12 @@ async function api(path, options = {}) {
     delete opts.json;
   }
   const res = await fetch(path, opts);
-  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  if (res.status === 401) { location.href = "/login"; throw new Error("Please sign in"); }
+  if (!res.ok) {
+    let message = `Server error ${res.status}`;
+    try { message = (await res.json()).error || message; } catch { /* not JSON */ }
+    throw new Error(message);
+  }
   const type = res.headers.get("Content-Type") || "";
   return type.includes("application/json") ? res.json() : res.blob();
 }
@@ -91,7 +96,17 @@ async function refreshStatus() {
     const hour = new Date().getHours();
     const part = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
     $("greeting").textContent = serverStatus.profile_name ? `${part}, ${serverStatus.profile_name}!` : `${part}!`;
-  } catch {
+    const user = serverStatus.user;
+    $("userName").textContent = user.name;
+    $("userRole").textContent = user.is_owner ? "Owner" : "Member";
+    $("avatar").textContent = (user.name.trim()[0] || "?").toUpperCase();
+    document.querySelectorAll(".owner-only").forEach((e) => (e.hidden = !user.is_owner));
+    const on = serverStatus.devices_online;
+    $("deviceStatus").className = "device-status" + (on ? " on" : "");
+    $("deviceStatusText").textContent = !serverStatus.devices ? "No NOOB device connected yet"
+      : on ? `Your NOOB device is online` : "Your NOOB device is offline";
+  } catch (e) {
+    if (e.message === "Please sign in") return;
     $("offline").hidden = false;
     $("serverPill").className = "server-pill bad";
     $("serverText").textContent = "Server stopped";
@@ -136,6 +151,10 @@ function ensureAudio() {
 
 async function startListening() {
   if (state !== "idle") return;
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    toast("Voice works on the NOOB PC or on an https:// address. Here you can type your message.", true);
+    return;
+  }
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -401,7 +420,7 @@ function deviceItem(d, actionText, action, badge) {
   grow.append(el("div", "title", d.name || "NOOB device"),
               el("div", "meta", [d.ip, d.paired_at ? `paired ${d.paired_at}` : d.version ? `firmware ${d.version}` : ""].filter(Boolean).join(" · ")));
   item.append(icon, grow);
-  if (badge) item.append(el("span", "badge" + (badge.ok ? " ok" : ""), badge.text));
+  if (badge) item.append(el("span", "badge" + (badge.ok ? " ok" : badge.off ? " off" : ""), badge.text));
   if (actionText) {
     const b = el("button", "btn " + (actionText === "Forget" ? "ghost danger" : "primary"), actionText);
     b.onclick = () => action(b);
@@ -421,8 +440,11 @@ loaders.devices = async () => {
       toast("Device removed");
       loaders.devices();
     }
-  }, { text: "Connected", ok: true })));
+  }, d.online ? { text: "● Online", ok: true } : { text: "● Offline", off: true })));
+  clearTimeout(devicesTimer);
+  if (location.hash === "#devices") devicesTimer = setTimeout(loaders.devices, 5000);   // live status
 };
+let devicesTimer = 0;
 
 $("scanBtn").onclick = async () => {
   $("scanBtn").disabled = true;
@@ -436,7 +458,7 @@ $("scanBtn").onclick = async () => {
     $("scanTitle").textContent = found.length ? `Found ${found.length} NOOB device${found.length > 1 ? "s" : ""}` : "No NOOB devices found";
     if (!found.length) list.append(el("div", "empty", "Nothing found. Check that NOOB is switched on, shows “Ready” or “Not paired”, and uses the same Wi-Fi."));
     found.forEach((d) => list.append(deviceItem(d, d.mine ? "" : "Connect", (btn) => pairDevice(d, btn),
-      d.mine ? { text: "Connected", ok: true } : { text: d.paired ? "Paired to another PC" : "New" })));
+      d.mine ? { text: "Yours", ok: true } : { text: d.other_account ? "Another account" : d.paired ? "Paired to another PC" : "New" })));
   } catch {
     toast("Scan failed", true);
   }
@@ -469,11 +491,17 @@ async function pairDevice(d, btn) {
 // ---------------------------------------------------------------- SETTINGS
 let logTimer = 0;
 loaders.settings = async () => {
+  await refreshStatus();
+  const status = serverStatus;
+  if (!status) return;
+  $("accountInfo").replaceChildren(...[["Name", status.user.name], ["Username", status.user.username],
+    ["Role", status.user.is_owner ? "Owner" : "Member"]].flatMap(([k, v]) => [el("dt", "", k), el("dd", "", v)]));
+  if (!status.user.is_owner) return;
   const s = await api("/api/settings");
   $("geminiKey").value = "";
   $("geminiKey").placeholder = s.gemini_key_set ? `Saved (${s.gemini_key_hint}) — paste a new key to replace` : "Paste your key";
-  await refreshStatus();
-  const status = serverStatus;
+  $("inviteCode").textContent = s.invite_code;
+  renderUsers(s.users);
   if (status) {
     $("brainStatus").textContent = status.gemini ? `Using Google Gemini (${status.gemini_model}) — free tier.`
       : "No Gemini key yet — NOOB uses the offline brain (Ollama) if it is installed.";
@@ -495,6 +523,45 @@ loaders.settings = async () => {
   refreshLog();
   logTimer = setInterval(refreshLog, 2000);
 };
+function renderUsers(users) {
+  $("userList").replaceChildren(...users.map((u) => {
+    const item = el("div", "item");
+    const avatar = el("div", "icon-circle", (u.name.trim()[0] || "?").toUpperCase());
+    const grow = el("div", "grow");
+    grow.append(el("div", "title", u.name), el("div", "meta", `@${u.username} · joined ${u.created_at}`));
+    item.append(avatar, grow);
+    if (u.is_owner) item.append(el("span", "badge ok", "Owner"));
+    else item.append(iconButton("del", "Remove account", async () => {
+      if (await modal({ title: `Remove ${u.name}?`, text: "Their account, memory and conversations will be deleted.", ok: "Remove", danger: true })) {
+        await api(`/api/users/${u.id}`, { method: "DELETE" });
+        toast("Account removed");
+        loaders.settings();
+      }
+    }, "del"));
+    return item;
+  }));
+}
+$("copyInvite").onclick = () => navigator.clipboard.writeText($("inviteCode").textContent).then(() => toast("Invite code copied"));
+$("newInvite").onclick = async () => {
+  if (await modal({ title: "Make a new invite code?", text: "The old code stops working. People who already have accounts are not affected.", ok: "New code" })) {
+    $("inviteCode").textContent = (await api("/api/settings/invite", { method: "POST" })).invite_code;
+    toast("New invite code ready");
+  }
+};
+$("changePw").onclick = async () => {
+  try {
+    await api("/api/auth/password", { method: "POST", json: { old: $("oldPw").value, new: $("newPw").value } });
+    $("oldPw").value = $("newPw").value = "";
+    toast("Password changed");
+  } catch (e) { toast(e.message, true); }
+};
+async function signOut() {
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  location.href = "/login";
+}
+$("signOut").onclick = signOut;
+$("signOut2").onclick = signOut;
+
 $("saveKey").onclick = async () => {
   const key = $("geminiKey").value.trim();
   if (!key) { toast("Paste your key first", true); return; }

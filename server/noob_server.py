@@ -7,9 +7,10 @@ How NOOB answers (for the NOOB device and for the NOOB App):
                       + today's date and time + free web search (DuckDuckGo) for live information
   3. Answer -> voice  Microsoft Edge neural voices (free, female voice, 70+ languages)
 
-It also serves the NOOB App (http://localhost:5000) where you talk to NOOB, fill in
-"About Me", manage NOOB's memory and conversations, and connect nearby NOOB devices.
-Everything NOOB learns is saved in noob_memory.db, so it remembers after switch-off.
+It also serves the NOOB App (http://localhost:5000). Everyone signs in with their own account
+and gets their own "About Me", memory and conversations; they can talk to NOOB, manage what it
+remembers, and connect their own NOOB devices. Everything is saved in noob_memory.db, so NOOB
+remembers after switch-off.
 
 Start: double-click "NOOB App.bat"   (or run:  python noob_server.py)
 """
@@ -20,10 +21,11 @@ import io
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 import wave
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import av
@@ -32,7 +34,7 @@ import numpy as np
 import requests
 from ddgs import DDGS
 from faster_whisper import WhisperModel
-from flask import Flask, Response, abort, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, abort, g, jsonify, redirect, request, send_from_directory, session
 
 import noob_devices
 import noob_settings
@@ -155,7 +157,7 @@ try:
 except Exception as e:                                 # no internet at start-up: use the preferred list
     log(f"!! Could not load the voice list ({e}); using the built-in list")
     VOICES = dict(PREFERRED_VOICES)
-log(f"{len(VOICES)} speech languages ready. Memory: {len(memory.all_facts())} facts.")
+log(f"{len(VOICES)} speech languages ready. Accounts: {memory.user_count()}.")
 
 
 # ------------------------------ step 1: speech -> text ------------------------------
@@ -254,20 +256,23 @@ def ask_ollama(system, messages):
     return r.json()["message"]["content"]
 
 
-def memory_prompt():
+def memory_prompt(user_id):
     text = ""
-    profile = memory.get_profile()
+    user = memory.get_user(user_id) or {}
+    if user.get("name"):
+        text += f"\n\nThe user's account name is {user['name']}."
+    profile = memory.get_profile(user_id)
     if profile:
         lines = "\n".join(f"{field}: {value}" for field, value in profile.items())
         text += f"\n\nThe user's profile (typed by the user in the NOOB App; always true, use it):\n{lines}"
-    facts = memory.all_facts()
+    facts = memory.all_facts(user_id)
     if facts:
         lines = "\n".join(f"#{fid} (saved {saved_at}): {fact}" for fid, saved_at, fact in facts)
         text += f"\n\nYour memory list (things the user told you earlier; #number = id):\n{lines}"
     return text or "\n\nYou do not know anything about the user yet."
 
 
-def apply_memory_commands(reply):
+def apply_memory_commands(reply, user_id):
     """Saves REMEMBER facts, deletes FORGET ids, and returns the answer without those commands."""
     match = re.search(r"\b(?:REMEMBER|FORGET)\s*:", reply)
     if not match:
@@ -276,10 +281,10 @@ def apply_memory_commands(reply):
     for kind, value in re.findall(r"\b(REMEMBER|FORGET)\s*:\s*(.+?)\s*(?=\b(?:REMEMBER|FORGET)\s*:|$)",
                                   commands, flags=re.DOTALL):
         if kind == "REMEMBER" and value:
-            log(f"   [memory] saved #{memory.add_fact(value)}: {value}")
+            log(f"   [memory] saved #{memory.add_fact(user_id, value)}: {value}")
         elif kind == "FORGET":
             number = re.search(r"\d+", value)
-            if number and memory.delete_fact(int(number.group())):
+            if number and memory.delete_fact(user_id, int(number.group())):
                 log(f"   [memory] forgot #{number.group()}")
     return answer.strip()
 
@@ -314,10 +319,10 @@ def web_search(query):
     return f"Web search results for '{query}' (today is {now_text()}):\n{lines or 'No results found.'}"
 
 
-def ask_ai(user_text):
+def ask_ai(user_id, user_text):
     """The whole 'thinking' step. Returns the answer with its language tag, or None if no AI is reachable."""
-    system = SYSTEM_PROMPT + memory_prompt() + f"\n\nCurrent date and time (India): {now_text()}"
-    messages = memory.recent_messages(RECENT_MESSAGES) + [{"role": "user", "content": user_text}]
+    system = SYSTEM_PROMPT + memory_prompt(user_id) + f"\n\nCurrent date and time (India): {now_text()}"
+    messages = memory.recent_messages(user_id, RECENT_MESSAGES) + [{"role": "user", "content": user_text}]
 
     reply = think(system, messages)
     query = search_request(reply) if reply else None
@@ -333,8 +338,8 @@ def ask_ai(user_text):
     if reply is None:
         return None
 
-    answer = apply_memory_commands(reply) or "Sorry, I have no answer for that."
-    memory.add_exchange(user_text, answer)
+    answer = apply_memory_commands(reply, user_id) or "Sorry, I have no answer for that."
+    memory.add_exchange(user_id, user_text, answer)
     return answer
 
 
@@ -385,22 +390,173 @@ NOT_HEARD = "Sorry, I did not hear anything. Please try again."
 NO_BRAIN = "Sorry, I cannot reach my brain right now. Please check the internet and try again."
 
 
+# ------------------------------ accounts and sign-in ------------------------------
+app.secret_key = settings()["secret_key"]
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                  PERMANENT_SESSION_LIFETIME=timedelta(days=30), MAX_CONTENT_LENGTH=20 * 1024 * 1024)
+failed_logins = collections.defaultdict(list)          # IP address -> times of wrong passwords
+DEVICE_SEEN = {}                                        # device MAC -> last time it said hello
+ONLINE_SECONDS = 70
+
+
+def current_user():
+    uid = session.get("uid")
+    return memory.get_user(uid) if uid else None
+
+
+def signed_in(view):
+    """Pages and data need a NOOB account."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        g.user = current_user()
+        if not g.user:
+            if request.path.startswith("/api/"):
+                return jsonify(error="Please sign in."), 401
+            return redirect("/login")
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def owner_only(view):
+    """Settings that affect everyone (AI key, invite code, accounts, stopping NOOB) are for the owner."""
+    @wraps(view)
+    @signed_in
+    def wrapper(*args, **kwargs):
+        if not g.user["is_owner"]:
+            return jsonify(error="Only the owner of this NOOB can do that."), 403
+        return view(*args, **kwargs)
+    return wrapper
+
+
+def body():
+    return request.get_json(silent=True) or {}
+
+
+def on_this_pc():
+    """True only for the NOOB PC itself (not for visitors coming through a tunnel or proxy)."""
+    return (request.remote_addr in ("127.0.0.1", "::1")
+            and not any(h in request.headers for h in ("Cf-Connecting-Ip", "X-Forwarded-For", "Forwarded")))
+
+
+def start_session(user_id):
+    session.clear()
+    session.permanent = True
+    session["uid"] = user_id
+
+
+@app.get("/")
+def home():
+    return redirect("/app" if current_user() else "/login")
+
+
+@app.get("/login")
+def login_page():
+    if current_user():
+        return redirect("/app")
+    return send_from_directory(app.static_folder, "login.html")
+
+
+@app.get("/api/auth/state")
+def api_auth_state():
+    user = current_user()
+    return jsonify(signed_in=bool(user), name=user["name"] if user else "",
+                   first_account=memory.user_count() == 0)
+
+
+@app.post("/api/auth/signup")
+def api_signup():
+    data = body()
+    username = str(data.get("username", "")).strip().lower()
+    name = " ".join(str(data.get("name", "")).split())[:60]
+    password = str(data.get("password", ""))
+    if not re.fullmatch(r"[a-z0-9_.-]{3,30}", username):
+        return jsonify(ok=False, error="Username: 3-30 letters, numbers, dots, dashes or underscores."), 400
+    if not name:
+        return jsonify(ok=False, error="Please enter your name."), 400
+    if len(password) < 6:
+        return jsonify(ok=False, error="Password: at least 6 characters."), 400
+    first = memory.user_count() == 0
+    if first and not on_this_pc():
+        return jsonify(ok=False, error="Create the owner account on the NOOB PC first."), 403
+    invite = settings()["invite_code"]
+    if not first and str(data.get("invite", "")).strip().upper() != invite.upper():
+        return jsonify(ok=False, error="Wrong invite code. Ask the owner of this NOOB for the code."), 403
+    user_id = memory.create_user(username, name, password)
+    if user_id is None:
+        return jsonify(ok=False, error="That username is taken. Try another one."), 409
+    profile = memory.get_profile(user_id)
+    if not profile.get("Name"):
+        memory.set_profile(user_id, {**profile, "Name": name})
+    start_session(user_id)
+    log(f"New account: {username}" + (" (owner)" if first else ""))
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/login")
+def api_login():
+    ip = request.remote_addr or "?"
+    now = time.time()
+    failed_logins[ip] = [t for t in failed_logins[ip] if now - t < 600]
+    if len(failed_logins[ip]) >= 8:
+        return jsonify(ok=False, error="Too many wrong tries. Wait 10 minutes and try again."), 429
+    data = body()
+    user_id = memory.check_login(str(data.get("username", "")).strip(), str(data.get("password", "")))
+    if not user_id:
+        failed_logins[ip].append(now)
+        return jsonify(ok=False, error="Wrong username or password."), 401
+    start_session(user_id)
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/logout")
+def api_logout():
+    session.clear()
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/password")
+@signed_in
+def api_change_password():
+    data = body()
+    if not memory.check_login(g.user["username"], str(data.get("old", ""))):
+        return jsonify(ok=False, error="Your current password is not correct."), 403
+    if len(str(data.get("new", ""))) < 6:
+        return jsonify(ok=False, error="New password: at least 6 characters."), 400
+    memory.change_password(g.user["id"], str(data["new"]))
+    return jsonify(ok=True)
+
+
 # ------------------------------ NOOB device ------------------------------
+def device_for_key(key):
+    if not key:
+        return None
+    return next((d for d in settings()["devices"] if d.get("key") and secrets.compare_digest(d["key"], key)), None)
+
+
+def ascii_name(name):
+    """The OLED font only has English letters."""
+    clean = "".join(ch for ch in name if 32 <= ord(ch) < 127).strip()
+    return (clean.split() or ["friend"])[0][:12]
+
+
 @app.post("/ask")
 def ask():
     """The NOOB device sends raw 16 kHz PCM audio here and plays the raw PCM answer."""
-    if request.headers.get("X-Device-Key") != settings()["device_key"]:
+    device = device_for_key(request.headers.get("X-Device-Key", ""))
+    if not device:
         abort(403)
+    DEVICE_SEEN[device["mac"]] = time.time()
+    user_id = device["user_id"]
     pcm = request.get_data()
     if len(pcm) < SAMPLE_RATE // 2:                  # less than 0.25 s of audio
         return speak_pcm(NOT_HEARD)
 
     started = time.time()
     user_text, heard_lang = speech_to_text(pcm)
-    log(f"You (device, {heard_lang}): {user_text}")
+    log(f"You ({device['name']}, {heard_lang}): {user_text}")
     if not user_text:
         return speak_pcm(NOT_HEARD)
-    reply = ask_ai(user_text)
+    reply = ask_ai(user_id, user_text)
     if reply is None:
         return speak_pcm(NO_BRAIN)
     lang, answer = split_language_tag(reply, heard_lang)
@@ -410,6 +566,19 @@ def ask():
     return audio
 
 
+@app.get("/device/ping")
+def device_ping():
+    """Every few seconds the NOOB device says hello, so the app knows it is online (and it knows the PC is)."""
+    device = device_for_key(request.headers.get("X-Device-Key", ""))
+    if not device:
+        abort(403)
+    if device["mac"] not in DEVICE_SEEN or time.time() - DEVICE_SEEN[device["mac"]] > ONLINE_SECONDS:
+        log(f"{device['name']} is online")
+    DEVICE_SEEN[device["mac"]] = time.time()
+    user = memory.get_user(device["user_id"]) or {}
+    return jsonify(ok=True, name=ascii_name(user.get("name", "")))
+
+
 @app.get("/health")
 def health():
     response = jsonify(ok=True, version=VERSION)
@@ -417,45 +586,39 @@ def health():
     return response
 
 
-# ------------------------------ NOOB App (this PC only) ------------------------------
-def this_pc_only(view):
-    """Your data is private: the app and its API only open on this PC."""
-    @wraps(view)
-    def wrapper(*args, **kwargs):
-        if request.remote_addr not in ("127.0.0.1", "::1"):
-            abort(403)
-        return view(*args, **kwargs)
-    return wrapper
-
-
-@app.get("/")
-@this_pc_only
-def home():
-    return redirect("/app")
+# ------------------------------ NOOB App ------------------------------
+def my_devices():
+    now = time.time()
+    return [{"name": d["name"], "mac": d["mac"], "ip": d["ip"], "paired_at": d["paired_at"],
+             "online": now - DEVICE_SEEN.get(d["mac"], 0) < ONLINE_SECONDS}
+            for d in settings()["devices"] if d.get("user_id") == g.user["id"] and d.get("key")]
 
 
 @app.get("/app")
-@this_pc_only
+@signed_in
 def web_app():
     return send_from_directory(app.static_folder, "index.html")
 
 
 @app.get("/api/status")
-@this_pc_only
+@signed_in
 def api_status():
     s = settings()
     ip = noob_devices.local_ip()
+    devices = my_devices()
     return jsonify(version=VERSION, ip=ip, server_url=f"http://{ip}:{PORT}/ask", whisper=WHISPER_SIZE,
                    gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=last_good_model,
-                   facts=len(memory.all_facts()), messages=len(memory.recent_log(100000)),
-                   profile_name=memory.get_profile().get("Name", ""), devices=len(s["devices"]),
+                   facts=len(memory.all_facts(g.user["id"])), messages=len(memory.recent_log(g.user["id"], 100000)),
+                   user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"])},
+                   profile_name=memory.get_profile(g.user["id"]).get("Name", "") or g.user["name"],
+                   devices=len(devices), devices_online=sum(d["online"] for d in devices),
                    languages=len(VOICES), time=now_text())
 
 
 def answer_json(user_text, heard_lang="en"):
     if not user_text:
         return jsonify(you="", answer=NOT_HEARD, lang="en", ok=False)
-    reply = ask_ai(user_text)
+    reply = ask_ai(g.user["id"], user_text)
     if reply is None:
         return jsonify(you=user_text, answer=NO_BRAIN, lang="en", ok=False)
     lang, answer = split_language_tag(reply, heard_lang)
@@ -464,15 +627,15 @@ def answer_json(user_text, heard_lang="en"):
 
 
 @app.post("/api/chat")
-@this_pc_only
+@signed_in
 def api_chat():
-    text = str((request.get_json(silent=True) or {}).get("text", "")).strip()[:2000]
-    log(f"You (typed): {text}")
+    text = str(body().get("text", "")).strip()[:2000]
+    log(f"You ({g.user['username']}, typed): {text}")
     return answer_json(text)
 
 
 @app.post("/api/voice")
-@this_pc_only
+@signed_in
 def api_voice():
     """Voice from the app's microphone (any audio format)."""
     try:
@@ -483,14 +646,14 @@ def api_voice():
     if len(pcm) < SAMPLE_RATE // 2:
         return jsonify(you="", answer=NOT_HEARD, lang="en", ok=False)
     text, heard_lang = speech_to_text(pcm)
-    log(f"You (app mic, {heard_lang}): {text}")
+    log(f"You ({g.user['username']}, voice, {heard_lang}): {text}")
     return answer_json(text, heard_lang)
 
 
 @app.post("/api/speak")
-@this_pc_only
+@signed_in
 def api_speak():
-    data = request.get_json(silent=True) or {}
+    data = body()
     text = clean_for_speech(str(data.get("text", "")))[:3000]
     if not text:
         abort(400)
@@ -498,73 +661,75 @@ def api_speak():
 
 
 @app.get("/api/profile")
-@this_pc_only
+@signed_in
 def api_profile_get():
-    return jsonify(memory.get_profile())
+    return jsonify(memory.get_profile(g.user["id"]))
 
 
 @app.put("/api/profile")
-@this_pc_only
+@signed_in
 def api_profile_put():
-    data = request.get_json(silent=True) or {}
-    memory.set_profile({str(k)[:60]: str(v)[:1000] for k, v in data.items()})
+    memory.set_profile(g.user["id"], {str(k)[:60]: str(v)[:1000] for k, v in body().items()})
     return jsonify(ok=True)
 
 
 @app.get("/api/facts")
-@this_pc_only
+@signed_in
 def api_facts():
-    return jsonify([{"id": i, "saved_at": t, "fact": f} for i, t, f in memory.all_facts()])
+    return jsonify([{"id": i, "saved_at": t, "fact": f} for i, t, f in memory.all_facts(g.user["id"])])
 
 
 @app.post("/api/facts")
-@this_pc_only
+@signed_in
 def api_fact_add():
-    fact = str((request.get_json(silent=True) or {}).get("fact", "")).strip()[:500]
+    fact = str(body().get("fact", "")).strip()[:500]
     if not fact:
         abort(400)
-    return jsonify(id=memory.add_fact(fact))
+    return jsonify(id=memory.add_fact(g.user["id"], fact))
 
 
 @app.put("/api/facts/<int:fact_id>")
-@this_pc_only
+@signed_in
 def api_fact_edit(fact_id):
-    fact = str((request.get_json(silent=True) or {}).get("fact", "")).strip()[:500]
-    if not fact or not memory.update_fact(fact_id, fact):
+    fact = str(body().get("fact", "")).strip()[:500]
+    if not fact or not memory.update_fact(g.user["id"], fact_id, fact):
         abort(404)
     return jsonify(ok=True)
 
 
 @app.delete("/api/facts/<int:fact_id>")
-@this_pc_only
+@signed_in
 def api_fact_delete(fact_id):
-    return jsonify(ok=memory.delete_fact(fact_id))
+    return jsonify(ok=memory.delete_fact(g.user["id"], fact_id))
 
 
 @app.get("/api/conversation")
-@this_pc_only
+@signed_in
 def api_conversation():
-    return jsonify([{"time": t, "role": r, "text": x} for t, r, x in memory.recent_log(500)])
+    return jsonify([{"time": t, "role": r, "text": x} for t, r, x in memory.recent_log(g.user["id"], 500)])
 
 
 @app.delete("/api/conversation")
-@this_pc_only
+@signed_in
 def api_conversation_clear():
-    memory.clear_conversation()
+    memory.clear_conversation(g.user["id"])
     return jsonify(ok=True)
 
 
+# ------------------------------ owner settings ------------------------------
 @app.get("/api/settings")
-@this_pc_only
+@owner_only
 def api_settings_get():
-    key = settings()["gemini_api_key"]
-    return jsonify(gemini_key_set=bool(key), gemini_key_hint=("••••" + key[-4:]) if key else "")
+    s = settings()
+    key = s["gemini_api_key"]
+    return jsonify(gemini_key_set=bool(key), gemini_key_hint=("••••" + key[-4:]) if key else "",
+                   invite_code=s["invite_code"], users=memory.all_users())
 
 
 @app.put("/api/settings")
-@this_pc_only
+@owner_only
 def api_settings_put():
-    data = request.get_json(silent=True) or {}
+    data = body()
     with settings_lock:
         s = noob_settings.load()
         if "gemini_api_key" in data:
@@ -573,14 +738,36 @@ def api_settings_put():
     return jsonify(ok=True)
 
 
+@app.post("/api/settings/invite")
+@owner_only
+def api_new_invite():
+    with settings_lock:
+        s = noob_settings.load()
+        s["invite_code"] = noob_settings.new_invite_code()
+        noob_settings.save(s)
+    return jsonify(invite_code=s["invite_code"])
+
+
+@app.delete("/api/users/<int:user_id>")
+@owner_only
+def api_delete_user(user_id):
+    if not memory.delete_user(user_id):
+        return jsonify(ok=False, error="The owner account cannot be removed."), 400
+    with settings_lock:                              # their devices are unpaired too
+        s = noob_settings.load()
+        s["devices"] = [d for d in s["devices"] if d.get("user_id") != user_id]
+        noob_settings.save(s)
+    return jsonify(ok=True)
+
+
 @app.get("/api/log")
-@this_pc_only
+@owner_only
 def api_log():
     return jsonify(list(LOG_LINES))
 
 
 @app.post("/api/shutdown")
-@this_pc_only
+@owner_only
 def api_shutdown():
     log("NOOB server stopped from the app.")
     threading.Timer(0.5, lambda: os._exit(0)).start()
@@ -589,67 +776,73 @@ def api_shutdown():
 
 # ------------------------------ Connect to nearby devices ------------------------------
 @app.get("/api/devices")
-@this_pc_only
+@signed_in
 def api_devices():
-    return jsonify(settings()["devices"])
+    return jsonify(my_devices())
 
 
 @app.post("/api/devices/scan")
-@this_pc_only
+@signed_in
 def api_devices_scan():
-    paired = {d["mac"] for d in settings()["devices"]}
+    owners = {d["mac"]: d.get("user_id") for d in settings()["devices"] if d.get("key")}
     found = noob_devices.scan()
     for d in found:
-        d["mine"] = d["mac"] in paired
+        d["mine"] = owners.get(d["mac"]) == g.user["id"]
+        d["other_account"] = d["mac"] in owners and not d["mine"]
     log(f"Scan: found {len(found)} NOOB device(s)")
     return jsonify(found)
 
 
 @app.post("/api/devices/pair/start")
-@this_pc_only
+@signed_in
 def api_pair_start():
-    ip = str((request.get_json(silent=True) or {}).get("ip", ""))
+    ip = str(body().get("ip", ""))
     ok = noob_devices.send(ip, "NOOB?PAIRSTART", {"NOOB!CODE"}) is not None
     return jsonify(ok=ok)
 
 
 @app.post("/api/devices/pair")
-@this_pc_only
+@signed_in
 def api_pair():
-    data = request.get_json(silent=True) or {}
+    data = body()
     ip, code = str(data.get("ip", "")), str(data.get("code", "")).strip()
     if not re.fullmatch(r"\d{4}", code):
         return jsonify(ok=False, error="The code has 4 digits.")
+    key = secrets.token_hex(12)                      # every device gets its own secret key
+    url = f"http://{noob_devices.local_ip(ip)}:{PORT}/ask"
+    reply = noob_devices.send(ip, f"NOOB?PAIR|{code}|{url}|{key}", {"NOOB!PAIRED", "NOOB!BADCODE"})
+    if reply is None:
+        return jsonify(ok=False, error="The device did not answer. Is it switched on and on the same Wi-Fi?")
+    if reply.startswith("NOOB!BADCODE"):
+        return jsonify(ok=False, error="Wrong code. Check the code on NOOB's screen and try again.")
+    _, name, mac = (reply.split("|") + ["", ""])[:3]
     with settings_lock:
         s = noob_settings.load()
-        url = f"http://{noob_devices.local_ip(ip)}:{PORT}/ask"
-        reply = noob_devices.send(ip, f"NOOB?PAIR|{code}|{url}|{s['device_key']}", {"NOOB!PAIRED", "NOOB!BADCODE"})
-        if reply is None:
-            return jsonify(ok=False, error="The device did not answer. Is it switched on and on the same Wi-Fi?")
-        if reply.startswith("NOOB!BADCODE"):
-            return jsonify(ok=False, error="Wrong code. Check the code on NOOB's screen and try again.")
-        _, name, mac = (reply.split("|") + ["", ""])[:3]
-        s["devices"] = [d for d in s["devices"] if d["mac"] != mac] + [
-            {"name": name, "mac": mac, "ip": ip, "paired_at": datetime.now().strftime("%Y-%m-%d %H:%M")}]
+        s["devices"] = [d for d in s["devices"] if d.get("mac") != mac] + [
+            {"name": name, "mac": mac, "ip": ip, "key": key, "user_id": g.user["id"],
+             "paired_at": datetime.now().strftime("%Y-%m-%d %H:%M")}]
         noob_settings.save(s)
-    log(f"Paired with {name} ({ip})")
+    DEVICE_SEEN[mac] = time.time()
+    log(f"{g.user['username']} paired {name} ({ip})")
     return jsonify(ok=True, name=name)
 
 
 @app.delete("/api/devices/<mac>")
-@this_pc_only
+@signed_in
 def api_unpair(mac):
     with settings_lock:
         s = noob_settings.load()
-        device = next((d for d in s["devices"] if d["mac"] == mac), None)
-        if device:
-            noob_devices.send(device["ip"], f"NOOB?UNPAIR|{s['device_key']}", {"NOOB!UNPAIRED"}, seconds=1.5)
-        s["devices"] = [d for d in s["devices"] if d["mac"] != mac]
+        device = next((d for d in s["devices"] if d.get("mac") == mac and d.get("user_id") == g.user["id"]), None)
+        if not device:
+            abort(404)
+        noob_devices.send(device["ip"], f"NOOB?UNPAIR|{device['key']}", {"NOOB!UNPAIRED"}, seconds=1.5)
+        s["devices"] = [d for d in s["devices"] if d.get("mac") != mac]
         noob_settings.save(s)
     return jsonify(ok=True)
 
 
 if __name__ == "__main__":
     noob_devices.start_server_responder(PORT, log)
-    log(f"NOOB server running. Open the NOOB App: http://localhost:{PORT}")
+    log(f"NOOB server running. Open the NOOB App: http://localhost:{PORT}  "
+        f"(other devices on this Wi-Fi: http://{noob_devices.local_ip()}:{PORT})")
     app.run(host="0.0.0.0", port=PORT, threaded=True)

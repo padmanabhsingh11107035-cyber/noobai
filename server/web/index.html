@@ -23,6 +23,11 @@
     <a href="#devices" data-page="devices"><svg viewBox="0 0 24 24"><path d="M12 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm-4.2-2.8 1.4 1.4a4 4 0 0 1 5.6 0l1.4-1.4a6 6 0 0 0-8.4 0Zm-2.9-2.9 1.4 1.4a8 8 0 0 1 11.4 0l1.4-1.4a10 10 0 0 0-14.2 0ZM2 9.4l1.4 1.4a12 12 0 0 1 17.2 0L22 9.4a14 14 0 0 0-20 0Z"/></svg><span>Devices</span></a>
     <a href="#settings" data-page="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.7 7.7 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.7 7.7 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg><span>Settings</span></a>
   </nav>
+  <div class="user-chip">
+    <div class="avatar" id="avatar">•</div>
+    <div class="who"><b id="userName">…</b><span class="muted" id="userRole"></span></div>
+    <button class="icon-btn" id="signOut" title="Sign out"><svg viewBox="0 0 24 24"><path d="M10 17l1.4-1.4-2.6-2.6H20v-2H8.8l2.6-2.6L10 7l-5 5 5 5ZM4 5h8V3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-2H4V5Z"/></svg></button>
+  </div>
   <div class="server-pill" id="serverPill"><span class="dot"></span><span id="serverText">Connecting…</span></div>
 </aside>
 
@@ -33,6 +38,7 @@
       <div class="talk-left">
         <h1 id="greeting">Hello!</h1>
         <p class="muted" id="subGreeting">Tap the orb and talk to me — in any language.</p>
+        <div class="device-status" id="deviceStatus"><span class="dot"></span><span id="deviceStatusText">No NOOB device connected yet</span></div>
         <button class="orb-wrap" id="orbBtn" aria-label="Talk to NOOB">
           <div class="orb idle" id="orb"><div class="orb-core"></div><div class="orb-ring"></div><div class="orb-ring r2"></div></div>
         </button>
@@ -115,14 +121,14 @@
   <!-- ============ SETTINGS ============ -->
   <section id="page-settings" class="page">
     <header class="page-head"><div><h1>Settings</h1><p class="muted">Everything NOOB uses is free.</p></div></header>
-    <div class="grid2">
+    <div class="grid2 owner-only">
       <div class="card">
         <h2>AI brain</h2>
         <p class="muted" id="brainStatus">…</p>
         <label class="field"><span>Google Gemini API key (free)</span>
           <div class="row"><input id="geminiKey" type="password" placeholder="Paste your key" autocomplete="off"><button class="btn primary" id="saveKey">Save</button></div>
         </label>
-        <p class="muted small">Get one free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> → Get API key (no card needed). Without a key NOOB uses the offline brain (Ollama), if installed.</p>
+        <p class="muted small">Get one free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> → Get API key (no card needed). If one Gemini model is busy, NOOB automatically uses another free one.</p>
       </div>
       <div class="card">
         <h2>Server</h2>
@@ -130,7 +136,25 @@
         <button class="btn danger ghost" id="stopServer">Stop NOOB server</button>
       </div>
     </div>
-    <div class="card">
+    <div class="grid2">
+      <div class="card owner-only">
+        <h2>People</h2>
+        <p class="muted">Family and friends can create their own NOOB account with this invite code. Everyone gets their own memory, About Me and devices.</p>
+        <div class="invite" id="inviteCode">····-····</div>
+        <div class="row"><button class="btn ghost" id="copyInvite">Copy code</button><button class="btn ghost" id="newInvite">New code</button></div>
+        <h3 class="section-title">Accounts</h3>
+        <div class="list" id="userList"></div>
+      </div>
+      <div class="card">
+        <h2>My account</h2>
+        <dl class="facts-dl" id="accountInfo"></dl>
+        <label class="field"><span>Change password</span>
+          <input id="oldPw" type="password" placeholder="Current password" autocomplete="current-password"></label>
+        <div class="row"><input id="newPw" type="password" placeholder="New password (6+ characters)" autocomplete="new-password"><button class="btn primary" id="changePw">Change</button></div>
+        <div class="row end"><button class="btn ghost" id="signOut2">Sign out</button></div>
+      </div>
+    </div>
+    <div class="card owner-only" style="margin-top:18px">
       <h2>Live log</h2>
       <pre class="log" id="log"></pre>
     </div>

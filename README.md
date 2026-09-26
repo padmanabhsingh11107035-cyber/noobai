@@ -24,8 +24,10 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | Healthcare knowledge with safety rules | Emergencies → 112 / 108, Tele MANAS 14416, no false diagnoses |
 | **Permanent memory** | Everything NOOB learns is saved in a local database and survives power-off |
 | **NOOB App**: About Me, Memory, Conversations, Devices, Settings | Web app (HTML + CSS + JavaScript) served by the NOOB server |
+| **Accounts** — family and friends get their own NOOB | Sign in / create account; each person has their own memory, About Me and devices (new accounts need an invite code) |
+| Robot ⇄ app always know about each other | NOOB says hello to the PC every 15 s: the app shows it **Online / Offline**, and NOOB's screen shows whether the PC is on |
 | **Connect to nearby devices** | The app finds NOOB devices on your Wi-Fi and pairs with a 4-digit code on NOOB's screen |
-| Status screen | 0.96" OLED: Ready / Listening / Thinking / Speaking / pairing code |
+| Status screen | 0.96" OLED: Ready (Hi, your name!) / Listening / Thinking / Speaking / pairing code / PC offline |
 
 ### Languages used to build NOOB
 
@@ -150,9 +152,12 @@ The full diagram is in [`docs/circuit_diagram.svg`](docs/circuit_diagram.svg) (o
    It starts the NOOB server in the background and opens the NOOB App in its own window.
    The first start downloads the speech model (~480 MB, also kept inside the `server` folder).
    Allow Python through the Windows firewall (*Private networks*) and allow the microphone when asked.
-5. In the app, open **Settings** and paste a **free Gemini API key**: go to **aistudio.google.com**,
-   sign in with a Google account, click **Get API key → Create API key** (no credit card needed).
-6. *(Optional, offline backup)* Install **Ollama** from **ollama.com**, then run `ollama pull gemma3:4b`.
+5. The app asks you to **create the owner account** (your name, a username and a password).
+   Anything NOOB remembered before accounts existed becomes yours.
+6. Open **Settings** and paste a **free Gemini API key**: go to **aistudio.google.com**, sign in with a
+   Google account, click the **key icon (API keys) → Create API key** (no credit card needed).
+   If one free Gemini model is busy or out of its daily quota, NOOB automatically uses another free one.
+7. *(Optional, offline backup)* Install **Ollama** from **ollama.com**, then run `ollama pull gemma3:4b`.
    If Gemini is unavailable (no internet or daily limit), NOOB uses this local AI automatically (slower).
 
 You can now talk to NOOB in the app, even before the hardware is built.
@@ -183,11 +188,17 @@ You can now talk to NOOB in the app, even before the hardware is built.
 
 1. In the NOOB App open **Devices → Scan now**. Your NOOB appears (e.g. *NOOB-3F2A*).
 2. Click **Connect**. NOOB's screen shows a **4-digit code**.
-3. Type the code in the app → **Connected!** The OLED shows **Ready**.
+3. Type the code in the app → **Connected!** The OLED shows **Ready — Hi, <your name>!**
+4. The device now belongs to **your account**: it uses your memory and About Me.
 
-The pairing is saved on NOOB (it survives power-off). If the PC gets a new IP address, NOOB finds it again
-automatically. Only devices running the NOOB firmware appear in the scan, and a device only accepts a PC
-when you type the code shown on its own screen.
+After that, NOOB and the app keep track of each other by themselves:
+
+- NOOB says hello to the PC every 15 seconds. The app shows **● Online** (Devices page and Talk page).
+  If NOOB is switched off, it shows **● Offline** within about a minute.
+- If the PC is off or the app is closed, NOOB's screen shows **PC offline** and keeps checking.
+  When the PC is back, NOOB shows **Ready** again. If the PC gets a new IP address, NOOB finds it again.
+- The pairing is saved on NOOB (it survives power-off). Only devices running the NOOB firmware appear
+  in the scan, and a device only accepts a PC when you type the code shown on its own screen.
 
 ---
 
@@ -204,13 +215,68 @@ when you type the code shown on its own screen.
 | **Memory** | Everything NOOB remembered from your conversations. Search, add, edit or delete. |
 | **Conversations** | Every question and answer from the app and the device, with search. |
 | **Devices** | Connect to nearby NOOB devices, see and forget paired devices. |
-| **Settings** | Gemini key, server details, live log, stop the server. |
+| **Settings** | Your account (change password, sign out). For the owner: Gemini key, invite code, accounts, server details, live log, stop the server. |
 
 The server keeps running after you close the app window, so the NOOB device keeps working.
 Stop it in **Settings → Stop NOOB server**. Open the app again with `NOOB App.bat`.
 
 Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group is B positive"*,
 *"What's today's date?"*, *"Who won yesterday's cricket match?"*, *"தலைவலிக்கு என்ன செய்யலாம்?"*
+
+---
+
+### Accounts: letting other people use NOOB
+
+- The first account is the **owner** (it can only be created on the NOOB PC itself).
+- Family and friends create their own account on the sign-in page with the **invite code** shown in
+  the owner's **Settings → People**. Everyone gets their own memory, About Me, conversations and devices.
+  The owner can make a new invite code or remove accounts at any time.
+- **On the same Wi-Fi:** others open `http://<PC-IP>:5000` (shown in Settings) in any browser, on a phone
+  or laptop. Typing works everywhere; talking by voice needs an `https://` address (next section) —
+  browsers only allow the microphone on secure pages.
+- **Their own NOOB:** anyone can build their own NOOB device and run their own server from this GitHub project.
+
+### Use NOOB from anywhere with your own domain (optional, free)
+
+Yes — NOOB works with a custom domain such as `noob.yourdomain.com`, using a free **Cloudflare Tunnel**.
+It gives the app a secure `https://` address (so voice works on phones too) without opening your router.
+The NOOB PC must be on and the server running.
+
+1. Create your owner account first (on the PC). Then install the tunnel tool:
+   ```bash
+   winget install --id Cloudflare.cloudflared
+   ```
+2. **Quick test (no domain needed):** run the command below. It prints a free random
+   `https://…trycloudflare.com` address that works while the command is running.
+   ```bash
+   cloudflared tunnel --url http://localhost:5000
+   ```
+3. **Your own domain** (the domain must be on your free Cloudflare account):
+   ```bash
+   cloudflared tunnel login
+   ```
+   ```bash
+   cloudflared tunnel create noob
+   ```
+   ```bash
+   cloudflared tunnel route dns noob noob.yourdomain.com
+   ```
+   Then create `C:\Users\<you>\.cloudflared\config.yml`:
+   ```yaml
+   tunnel: noob
+   credentials-file: C:\Users\<you>\.cloudflared\<TUNNEL-ID>.json
+   ingress:
+     - hostname: noob.yourdomain.com
+       service: http://localhost:5000
+     - service: http_status:404
+   ```
+   and start it (keep it running):
+   ```bash
+   cloudflared tunnel run noob
+   ```
+4. Share `https://noob.yourdomain.com` and your invite code. Everyone signs in with their own account.
+
+The NOOB **device** still talks to the PC over your Wi-Fi; the domain is for the app.
 
 ---
 
@@ -231,18 +297,20 @@ NOOB is an **information** assistant, not a doctor. Its instructions make it:
 
 ## 8. Privacy and GitHub
 
-- Your data (About Me, memories, conversations) is stored only in `server/noob_memory.db` on your PC.
-  The NOOB App and its data only open on this PC (other devices on the Wi-Fi are refused).
-- Your Gemini key and pairing secret are stored in `server/noob_settings.json`.
+- Your data (About Me, memories, conversations, accounts) is stored only in `server/noob_memory.db`
+  on your PC. Passwords are stored only as secure hashes. Every page and all data need a signed-in account,
+  and each person can only see their own data.
+- Before the upgrade to accounts, NOOB automatically saves a backup copy of your old memory
+  (`noob_memory.backup-<date>.db`).
+- Your Gemini key, invite code and device keys are stored in `server/noob_settings.json`.
 - The included **`.gitignore`** keeps `noob_memory.db`, `noob_settings.json` and the log file **out of GitHub**,
   so you can safely upload the project code.
 - On Gemini's free tier, Google may use conversations to improve its products. For fully private use,
   remove the key in Settings and use the offline Ollama brain.
 - **Backup:** copy `noob_memory.db` to a pen drive. **Start fresh:** stop the server and delete it.
 
-> **About a website URL:** the NOOB App runs from your own PC (`http://localhost:5000`). A GitHub Pages site
-> cannot talk to the server on your PC because browsers block that for security, so use GitHub to share
-> the code and open the app with `NOOB App.bat`.
+> **About a website URL:** GitHub stores the code; the NOOB App itself runs from your PC. To reach it with
+> a web address, use the free Cloudflare Tunnel above (a GitHub Pages site cannot reach the server on your PC).
 
 ---
 
@@ -253,7 +321,9 @@ NOOB is an **information** assistant, not a doctor. Its instructions make it:
 | OLED shows **NO PSRAM!** | *Tools → PSRAM → OPI PSRAM*. Check your board is N16R8/N8R8. |
 | OLED shows **WiFi FAILED / No WiFi** | Check the name/password in the code; ESP32 only supports **2.4 GHz** Wi-Fi. |
 | Scan finds nothing | NOOB and the PC must be on the same Wi-Fi; allow Python in the Windows firewall (Private). |
-| OLED shows **PC not found** | Open the NOOB App on the PC (it starts the server). |
+| OLED shows **PC not found / PC offline** | Open the NOOB App on the PC (it starts the server). NOOB reconnects by itself. |
+| Forgot your password | The owner can remove the account in Settings → People, then you create it again. |
+| "Voice works on the NOOB PC or on an https:// address" | You opened the app over plain `http://` from another device: type instead, or use the Cloudflare Tunnel address. |
 | OLED shows **Not paired with PC** | Devices → Scan now → Connect again. |
 | App says **NOOB server is not running** | Double-click `NOOB App.bat`. If it still fails, read `server/noob_server.log`. |
 | App microphone does not work | Allow the microphone for the NOOB App window (click the lock icon in the address bar). |
@@ -287,6 +357,7 @@ noob-esp32-assistant/
     ├── requirements.txt
     └── web/                   ← the NOOB App (HTML, CSS, JavaScript)
         ├── index.html
+        ├── login.html         ← sign in / create account
         ├── style.css
         ├── app.js
         └── loading.html       ← start-up screen

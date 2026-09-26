@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOOB · Sign in</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%2322d3ee'/><stop offset='1' stop-color='%237c5cff'/></radialGradient></defs><circle cx='32' cy='32' r='28' fill='url(%23g)'/></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-body">
+<div class="bg-glow"></div>
+<div class="auth-wrap">
+  <div class="auth-hero">
+    <div class="orb idle auth-orb"><div class="orb-core"></div></div>
+    <h1>NOOB</h1>
+    <p class="muted">Your multilingual AI friend — with healthcare knowledge and a memory that never forgets.</p>
+  </div>
+
+  <div class="card auth-card">
+    <div class="auth-tabs" id="tabs">
+      <button class="active" data-tab="signin">Sign in</button>
+      <button data-tab="signup">Create account</button>
+    </div>
+    <p class="muted small" id="firstNote" hidden>👋 Welcome! Create the <b>owner</b> account for this NOOB. Everything NOOB already remembers will be yours.</p>
+
+    <form id="form" autocomplete="on">
+      <label class="field" data-show="signup"><span>Your name</span>
+        <input id="name" autocomplete="name" maxlength="60" placeholder="e.g. Padmanabh"></label>
+      <label class="field"><span>Username</span>
+        <input id="username" autocomplete="username" maxlength="30" placeholder="e.g. padmanabh" required></label>
+      <label class="field"><span>Password</span>
+        <input id="password" type="password" autocomplete="current-password" required minlength="6"></label>
+      <label class="field" data-show="signup"><span>Confirm password</span>
+        <input id="password2" type="password" autocomplete="new-password"></label>
+      <label class="field" data-show="signup" id="inviteField"><span>Invite code <small class="muted">(ask the owner of this NOOB)</small></span>
+        <input id="invite" maxlength="9" placeholder="XXXX-XXXX" autocapitalize="characters"></label>
+      <p class="auth-error" id="error" hidden></p>
+      <button class="btn primary wide-btn" id="submit" type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  let tab = "signin", first = false;
+
+  function show(which) {
+    tab = which;
+    document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === which));
+    document.querySelectorAll("[data-show=signup]").forEach((el) => (el.hidden = which !== "signup"));
+    $("inviteField").hidden = which !== "signup" || first;
+    $("password").autocomplete = which === "signup" ? "new-password" : "current-password";
+    $("submit").textContent = which === "signup" ? (first ? "Create owner account" : "Create account") : "Sign in";
+    $("error").hidden = true;
+  }
+  document.querySelectorAll("#tabs button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
+
+  function fail(message) { $("error").textContent = message; $("error").hidden = false; }
+
+  $("form").onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = { username: $("username").value.trim(), password: $("password").value };
+    if (tab === "signup") {
+      if (!$("name").value.trim()) return fail("Please enter your name.");
+      if ($("password").value !== $("password2").value) return fail("The two passwords are different.");
+      payload.name = $("name").value.trim();
+      payload.invite = $("invite").value.trim();
+    }
+    $("submit").disabled = true;
+    try {
+      const r = await fetch(tab === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await r.json();
+      if (data.ok) location.href = "/app";
+      else fail(data.error || "Something went wrong.");
+    } catch {
+      fail("Cannot reach the NOOB server.");
+    }
+    $("submit").disabled = false;
+  };
+
+  fetch("/api/auth/state").then((r) => r.json()).then((s) => {
+    if (s.signed_in) { location.href = "/app"; return; }
+    first = s.first_account;
+    $("firstNote").hidden = !first;
+    if (first) { document.querySelector('[data-tab=signin]').hidden = true; show("signup"); }
+    else show("signin");
+  });
+</script>
+</body>
+</html>

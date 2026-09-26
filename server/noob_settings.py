@@ -11,9 +11,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(HERE, "noob_settings.json")
 DEFAULTS = {
     "gemini_api_key": "",
-    "device_key": "",        # secret shared with paired NOOB devices (created automatically)
-    "devices": [],           # paired NOOB devices: [{"name", "mac", "ip", "paired_at"}]
+    "secret_key": "",        # signs login cookies (created automatically)
+    "invite_code": "",       # new accounts need this code (shown to the owner in Settings)
+    "devices": [],           # paired NOOB devices: [{"name", "mac", "ip", "key", "user_id", "paired_at"}]
 }
+
+
+def new_invite_code():
+    return "-".join(secrets.token_hex(2).upper() for _ in range(2))      # e.g. "3F9A-C21B"
 
 
 def load():
@@ -23,8 +28,14 @@ def load():
             settings.update({k: v for k, v in json.load(f).items() if k in DEFAULTS})
     except (FileNotFoundError, ValueError):
         pass
-    if not settings["device_key"]:                    # first run: create a random secret key
-        settings["device_key"] = secrets.token_hex(12)
+    changed = False
+    if not settings["secret_key"]:                    # first run: create the secrets
+        settings["secret_key"] = secrets.token_hex(32)
+        changed = True
+    if not settings["invite_code"]:
+        settings["invite_code"] = new_invite_code()
+        changed = True
+    if changed:
         save(settings)
     return settings
 

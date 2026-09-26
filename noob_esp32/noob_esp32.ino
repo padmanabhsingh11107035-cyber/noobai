@@ -30,10 +30,12 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // ================================================================
 // The PC's address and the secret key are set by pairing in the NOOB App.
 
-#define FW_VERSION  "1.0"
+#define FW_VERSION  "1.1"
 #define DEVICE_PORT 4210         // NOOB listens here for the NOOB App
 #define SERVER_PORT 4211         // the NOOB server listens here
 #define PAIR_WINDOW_MS 120000    // a pairing code is valid for 2 minutes
+#define PING_ONLINE_MS  15000    // say hello to the PC this often while it answers
+#define PING_OFFLINE_MS 30000    // ...and this often while it does not
 
 // ---------- Pins (see wiring table) ----------
 #define MIC_SCK     5    // INMP441 SCK
@@ -69,6 +71,9 @@ String serverUrl, deviceKey, deviceName;
 int pairCode = 0;
 unsigned long pairUntil = 0;      // 0 = not in pairing mode
 unsigned long lastWifiTry = 0;
+unsigned long lastPing = 0;
+bool pcOnline = false;            // does the NOOB server on the PC answer?
+String ownerName;                 // first name of the account NOOB belongs to
 
 // ------------------------------------------------------------------ screen
 void showStatus(const char* line1, const char* line2 = "") {
@@ -93,8 +98,12 @@ bool isPaired() {
 
 void showReady() {
   if (WiFi.status() != WL_CONNECTED) showStatus("No WiFi", WIFI_SSID);
-  else if (isPaired())               showStatus("Ready", "hold button to talk");
-  else                               showStatus("Not paired yet", "NOOB App > Devices");
+  else if (!isPaired())              showStatus("Not paired yet", "NOOB App > Devices");
+  else if (!pcOnline)                showStatus("PC offline", "open NOOB App on PC");
+  else {
+    String hello = "Hi " + (ownerName.length() ? ownerName : String("friend")) + "! Hold to talk";
+    showStatus("Ready", hello.c_str());
+  }
 }
 
 void showPairCode() {
@@ -230,7 +239,8 @@ void handleUdp() {
       savePairing(url, key);
       pairUntil = 0;
       udpReply(paired);
-      showStatus("Paired!", "hold button to talk");
+      showStatus("Paired!", "saying hello to PC");
+      lastPing = 0;                                  // say hello right away
     } else {
       udpReply("NOOB!BADCODE");
     }
@@ -245,9 +255,9 @@ void handleUdp() {
 }
 
 // Asks the network where the NOOB server is (used when the PC's IP address changed).
-bool findServer() {
+bool findServer(bool quiet = false) {
   if (!udpStarted) return false;
-  showStatus("Looking for PC...", "");
+  if (!quiet) showStatus("Looking for PC...", "");
   char msg[300];
   for (int attempt = 0; attempt < 3; attempt++) {
     udp.beginPacket(IPAddress(255, 255, 255, 255), SERVER_PORT);
@@ -264,6 +274,43 @@ bool findServer() {
     }
   }
   return false;
+}
+
+// Says hello to the NOOB server, so the app shows NOOB as online and NOOB knows the PC is on.
+void pingServer(bool retry = true) {
+  if (!isPaired() || WiFi.status() != WL_CONNECTED) return;
+  bool wasOnline = pcOnline;
+  String url = serverUrl;
+  url.replace("/ask", "/device/ping");
+  HTTPClient http;
+  http.begin(url);
+  http.setConnectTimeout(2500);
+  http.setTimeout(3000);
+  http.addHeader("X-Device-Key", deviceKey);
+  int code = http.GET();
+  if (code == 200) {
+    pcOnline = true;
+    String body = http.getString();                  // {"name":"Padmanabh","ok":true}
+    int start = body.indexOf("\"name\":\"");
+    if (start >= 0) {
+      start += 8;
+      ownerName = body.substring(start, body.indexOf('"', start));
+    }
+  } else {
+    pcOnline = false;
+    if (code == 403) {                               // this PC no longer knows NOOB
+      http.end();
+      savePairing("", "");
+      showReady();
+      return;
+    }
+  }
+  http.end();
+  if (!pcOnline && retry && findServer(true)) {      // the PC may have a new IP address
+    pingServer(false);
+    return;
+  }
+  if (pcOnline != wasOnline && pairUntil == 0) showReady();
 }
 
 // ------------------------------------------------------------------ talking
@@ -317,7 +364,7 @@ void askServerAndPlay(size_t samples) {
   }
   if (code != 200) {
     Serial.printf("[NOOB] HTTP error: %d (%s)\n", code, http.errorToString(code).c_str());
-    if (code == 403)    showStatus("Not paired with PC", "pair again in app");
+    if (code == 403)    { savePairing("", ""); showStatus("Not paired with PC", "pair again in app"); }
     else if (code < 0)  showStatus("PC not found", "is NOOB App open?");
     else                showStatus("Server error", "see NOOB App log");
     delay(2500);
@@ -360,6 +407,7 @@ void askServerAndPlay(size_t samples) {
   }
 
   http.end();
+  pcOnline = true;
   showReady();
 }
 
@@ -395,6 +443,8 @@ void setup() {
   String mac = WiFi.macAddress();              // e.g. "AA:BB:CC:DD:EE:FF" -> name "NOOB-EEFF"
   deviceName = "NOOB-" + mac.substring(12, 14) + mac.substring(15, 17);
   lastWifiTry = millis();
+  pingServer();
+  lastPing = millis();
   showReady();
 }
 
@@ -409,6 +459,10 @@ void loop() {
     lastWifiTry = millis();
     connectWiFi();
     showReady();
+  }
+  if (pairUntil == 0 && millis() - lastPing > (pcOnline ? PING_ONLINE_MS : PING_OFFLINE_MS)) {
+    lastPing = millis();
+    pingServer();
   }
 
   if (digitalRead(BUTTON_PIN) == LOW) {
