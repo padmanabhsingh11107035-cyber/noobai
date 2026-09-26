@@ -155,7 +155,7 @@ def settings():
 
 
 def load_voices():
-    voices = asyncio.run(edge_tts.list_voices())
+    voices = asyncio.run(asyncio.wait_for(edge_tts.list_voices(), timeout=10))     # never hang the start-up
     by_lang = {}
     names = {v["ShortName"] for v in voices}
     for v in voices:                                   # NOOB always uses a female voice
