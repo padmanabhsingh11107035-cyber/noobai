@@ -112,6 +112,8 @@ async function refreshStatus() {
     $("avatar").textContent = (user.name.trim()[0] || "?").toUpperCase();
     document.querySelectorAll(".owner-only").forEach((e) => (e.hidden = !user.is_owner));
     showFreeNote(serverStatus.questions_left);
+    $("maintenance").hidden = !serverStatus.maintenance;                      // locked by the NOOB admin
+    $("lockNote").hidden = !(serverStatus.locked_for_others && !serverStatus.maintenance);
     const on = serverStatus.devices_online;
     $("deviceStatus").className = "device-status" + (on ? " on" : "");
     $("deviceStatusText").textContent = !serverStatus.devices ? "No NOOB device connected yet"
@@ -472,6 +474,7 @@ async function streamAnswer(path, request, fromVoice) {
     } else if (ev.type === "done") {
       ok = ev.ok;
       if ("questions_left" in ev) showFreeNote(ev.questions_left);
+      if (ev.maintenance) refreshStatus();
       if (ev.music) musicAction = ev.music;
       if (ev.survey) wantSurvey = true;
       const b = noobBubble();

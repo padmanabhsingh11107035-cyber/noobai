@@ -31,6 +31,7 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | **Continue with NOOB** | Sign in with your NOOB social media account (nooob.xyz) — no new password needed |
 | Free trial for people without NOOB | Accounts made without a NOOB account get 5 free questions, then link NOOB for unlimited |
 | 5-star rating | After the first 15 questions, NOOB AI asks for a 1–5 star rating (the owner sees them in Settings) |
+| Maintenance lock | The NOOB admin can lock NOOB AI from the NOOB app (Admin Control Panel → Platform → NOOB AI maintenance lock): everyone except the owner then sees "NOOB AI is under maintenance" in the app, the website and on devices |
 | Animated 3D gem and logo | A colourful faceted crystal (240 facets, each with a white outline and an inner triangle) rotating in 3D with lighting — drawn on a canvas by `web/gem.js`, no libraries; it spins faster while NOOB thinks |
 | **Accounts** — family and friends get their own NOOB | Sign in / create account; each person has their own memory, About Me and devices (new accounts need an invite code) |
 | Robot ⇄ app always know about each other | NOOB says hello to the PC every 15 s: the app shows it **Online / Offline**, and NOOB's screen shows whether the PC is on |

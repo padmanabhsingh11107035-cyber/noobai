@@ -44,6 +44,7 @@
         </button>
         <div class="status-line" id="statusLine">Tap to talk</div>
         <div class="free-note" id="freeNote" hidden></div>
+        <div class="free-note out" id="lockNote" hidden>🛠️ NOOB AI is locked for maintenance by the NOOB admin — only you can use it right now.</div>
         <!-- Now playing: songs from YouTube, in YouTube's own player -->
         <div class="music-card" id="musicCard" hidden>
           <div class="music-video"><div id="ytPlayer"></div></div>
@@ -205,6 +206,15 @@
     <img class="brand-logo big dim" src="/static/logo.svg" alt="">
     <h2>NOOB server is not running</h2>
     <p class="muted">Double-click <b>NOOB App.bat</b> to start it again. This page reconnects automatically.</p>
+  </div>
+</div>
+
+<!-- NOOB AI locked for maintenance by the NOOB admin (NOOB app → Admin Control Panel → Platform) -->
+<div class="overlay" id="maintenance" hidden>
+  <div class="card center">
+    <div class="gem sleep" aria-hidden="true" style="--s:150px;margin-bottom:18px"><div class="gem-halo"></div><canvas></canvas></div>
+    <h2>NOOB AI is under maintenance 🛠️</h2>
+    <p class="muted">We're making NOOB AI even better. Please check back soon — this page opens again by itself.</p>
   </div>
 </div>
 

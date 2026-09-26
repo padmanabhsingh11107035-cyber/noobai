@@ -487,6 +487,10 @@ def converse(user_id, text=None, pcm=None):
     each sentence of the answer is ready, and finally ("done", answer, lang, ok)."""
     voice = pcm is not None
     started = time.time()
+    if locked_for(user_id):                          # the NOOB admin locked NOOB AI for maintenance
+        yield ("sentence", MAINTENANCE, "en")
+        yield ("done", MAINTENANCE, "en", False, {"maintenance": True})
+        return
     if questions_left(user_id) == 0:                  # free questions used up: ask them to link a NOOB account
         yield ("sentence", LIMIT_REACHED, "en")
         yield ("done", LIMIT_REACHED, "en", False, {"limit": True, "questions_left": 0})
@@ -599,6 +603,14 @@ def converse(user_id, text=None, pcm=None):
     yield ("done", answer, stream.lang, True, extra)
 
 
+def locked_for(user_id):
+    """True while the NOOB admin has NOOB AI locked for maintenance; its owner can still use it (to test)."""
+    if not noob_social.noob_ai_locked():
+        return False
+    user = memory.get_user(user_id) or {}
+    return not user.get("is_owner")
+
+
 def questions_left(user_id):
     """None = no limit (the owner and people signed in with NOOB); otherwise free questions left."""
     user = memory.get_user(user_id) or {}
@@ -641,6 +653,7 @@ def pcm_to_wav(pcm):
 
 NOT_HEARD = "Sorry, I did not hear anything. Please try again."
 NO_BRAIN = "Sorry, I cannot reach my brain right now. Please check the internet and try again."
+MAINTENANCE = "NOOB AI is under maintenance right now. We are making me even better, so please check back soon!"
 LIMIT_REACHED = (f"You have used your {FREE_QUESTIONS} free questions. To keep talking with me, link your NOOB account "
                  "in About Me, or sign in with Continue with NOOB. It is free!")
 
@@ -1080,6 +1093,7 @@ def api_status():
                    user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"]),
                          "noob_username": g.user.get("noob_username") or ""},
                    questions_left=questions_left(g.user["id"]), free_questions=FREE_QUESTIONS,
+                   maintenance=locked_for(g.user["id"]), locked_for_others=noob_social.noob_ai_locked(),
                    profile_name=memory.get_profile(g.user["id"]).get("Name", "") or g.user["name"],
                    devices=len(devices), devices_online=sum(d["online"] for d in devices),
                    languages=len(VOICES), time=now_text(), online_url=noob_tunnel.public_url())
@@ -1343,6 +1357,7 @@ def stop_everything():
 
 if __name__ == "__main__":
     noob_devices.start_server_responder(PORT, log)
+    noob_social.watch_platform(log)                    # the NOOB admin's maintenance lock for NOOB AI
     tunnel = noob_tunnel.start(log)
     log(f"NOOB server running. Open the NOOB App: http://localhost:{PORT}  "
         f"(other devices on this Wi-Fi: http://{noob_devices.local_ip()}:{PORT})")

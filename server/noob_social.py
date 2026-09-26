@@ -7,6 +7,8 @@ straight away. The NOOB password is never saved or logged by the assistant.
 """
 
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
@@ -75,6 +77,41 @@ def details_from(me):
 
 class NoobSocialError(Exception):
     """A message that can be shown to the person signing in."""
+
+
+# ---------------- NOOB AI maintenance lock ----------------
+# The NOOB admin can lock NOOB AI for maintenance (NOOB app → Admin Control Panel → Platform). NOOB AI reads that
+# switch from NOOB every 15 seconds in the background, so answering a question never waits for it.
+_platform = {"noob_ai_maintenance": False}
+
+
+def noob_ai_locked():
+    return bool(_platform["noob_ai_maintenance"])
+
+
+def check_platform():
+    """Reads the switch once. If NOOB can't be reached, the last known value is kept."""
+    try:
+        r = _http.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/public_platform_settings", headers=_headers(), json={},
+                       timeout=(5, 10))
+        if r.status_code == 200 and isinstance(r.json(), dict):
+            _platform["noob_ai_maintenance"] = bool(r.json().get("noobAiMaintenance"))
+    except Exception:
+        pass
+    return noob_ai_locked()
+
+
+def watch_platform(log, every=15):
+    """Keeps checking the switch in the background and logs when it changes."""
+    def loop():
+        before = None
+        while True:
+            now = check_platform()
+            if now != before and before is not None:
+                log("NOOB AI locked for maintenance by the NOOB admin" if now else "NOOB AI maintenance lock removed")
+            before = now
+            time.sleep(every)
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def _headers(token=None):

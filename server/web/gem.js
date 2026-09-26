@@ -75,7 +75,7 @@
     function frame(now) {
       if (!el.isConnected) return;
       requestAnimationFrame(frame);
-      if (document.hidden) { last = now; return; }
+      if (document.hidden || !el.offsetWidth) { last = now; return; }        // not on screen: don't draw
       if (el.clientWidth !== size) resize();
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
