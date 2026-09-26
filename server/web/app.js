@@ -132,7 +132,7 @@ let audioCtx = null, recorder = null, rafId = 0;
 // so the first tap "unlocks" this player with a moment of silence, and every answer reuses it.
 const player = new Audio();
 player.setAttribute("playsinline", "");
-let playerUnlocked = false, stopPlayback = null;
+let playerUnlocked = false;
 const SILENCE = (() => {
   const n = 1600, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
   const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
@@ -242,84 +242,136 @@ function stopListening() {
 }
 
 async function sendVoice(blob) {
-  setState("thinking");
-  const typing = typingBubble();
-  try {
-    const r = await api("/api/voice", { method: "POST", body: blob, headers: { "Content-Type": blob.type }, timeout: 120000 });
-    typing.remove();
-    if (r.you) addBubble("you", r.you);
-    await showAnswer(r);
-  } catch (e) {
-    typing.remove();
-    addBubble("noob", e.name === "AbortError" ? "NOOB took too long to answer. Please try again." : "Could not reach NOOB AI. Please try again.", "error");
-    setState("idle");
-  }
+  await streamAnswer("/api/voice", { method: "POST", body: blob, headers: { "Content-Type": blob.type } }, true);
 }
 
 async function sendText(text) {
   if (!text.trim() || state === "thinking") return;
   stopSpeaking();
   addBubble("you", text);
-  setState("thinking");
-  const typing = typingBubble();
-  try {
-    const r = await api("/api/chat", { method: "POST", json: { text }, timeout: 120000 });
-    typing.remove();
-    await showAnswer(r, false);
-  } catch (e) {
-    typing.remove();
-    addBubble("noob", e.name === "AbortError" ? "NOOB took too long to answer. Please try again." : "Could not reach NOOB AI. Please try again.", "error");
-    setState("idle");
-  }
+  await streamAnswer("/api/chat", { method: "POST", body: JSON.stringify({ text }),
+    headers: { "Content-Type": "application/json" } }, false);
 }
 
-async function showAnswer(r, fromVoice = true) {
-  const bubble = addBubble("noob", r.answer, r.ok ? "" : "error");
-  let played = false;
-  try {
-    setState("thinking", "Getting my voice ready…");
-    const wav = await api("/api/speak", { method: "POST", json: { text: r.answer, lang: r.lang }, timeout: 45000 });
-    played = await playVoice(wav, bubble);
-  } catch {
-    toast("NOOB's voice is not available right now — you can still read the answer.", true);
-  }
-  setState("idle");
-  if (played && fromVoice && r.ok && $("convMode").checked) setTimeout(startListening, 400);   // keep talking
-}
-
-// Plays NOOB's voice. Resolves true if it played, false if the phone blocked it (then a "Play" button is shown).
-function playVoice(blob, bubble) {
+// Plays one clip on the unlocked player. Resolves true when it played (or was skipped), false if the phone blocked it.
+function playClip(url) {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(blob);
     let done = false, guard = 0;
     const finish = (ok) => {
       if (done) return;
       done = true;
       clearTimeout(guard);
       player.onended = player.onerror = null;
-      stopPlayback = null;
       resolve(ok);
     };
-    stopPlayback = () => { player.pause(); finish(true); };
     player.onended = () => finish(true);
-    player.onerror = () => finish(false);
+    player.onerror = () => finish(true);                 // skip a broken clip
     player.src = url;
-    setState("speaking");
     player.play().then(() => {
-      // safety net: never get stuck on "Speaking"
-      const seconds = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 60;
-      guard = setTimeout(() => finish(true), seconds * 1000 + 3000);
-    }).catch(() => {
-      const play = el("button", "chip play-voice", "🔊 Play NOOB's voice");
-      play.onclick = () => { player.src = url; player.play().catch(() => {}); };
-      bubble.append(el("br"), play);
-      finish(false);
-    });
+      const seconds = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 30;
+      guard = setTimeout(() => finish(true), seconds * 1000 + 3000);     // never get stuck
+    }).catch(() => finish(false));
   });
 }
 
+let currentReply = null;                                  // the answer being spoken (so a tap can stop it)
 function stopSpeaking() {
-  if (stopPlayback) stopPlayback();
+  if (currentReply) currentReply.cancel();
+}
+
+// Asks NOOB and handles the streamed answer: what NOOB heard, the text as it is written, and each
+// sentence's voice as soon as it is ready (so NOOB starts speaking before the whole answer exists).
+async function streamAnswer(path, request, fromVoice) {
+  setState("thinking");
+  const typing = typingBubble();
+  let bubble = null, ok = false, blocked = false, streamDone = false, playing = false, cancelled = false;
+  const queue = [], clips = [];
+  let allPlayed;
+  const finished = new Promise((resolve) => (allPlayed = resolve));
+  const reply = {
+    cancel() { cancelled = true; queue.length = 0; player.pause(); allPlayed(); },
+  };
+  currentReply = reply;
+
+  const playNext = () => {
+    if (playing || cancelled) return;
+    if (!queue.length) { if (streamDone) allPlayed(); return; }
+    playing = true;
+    setState("speaking");
+    playClip(queue.shift()).then((played) => {
+      playing = false;
+      if (!played) { blocked = true; queue.length = 0; }
+      playNext();
+    });
+  };
+  const noobBubble = () => {
+    if (!bubble) { typing.remove(); bubble = addBubble("noob", ""); }
+    return bubble;
+  };
+  const handle = (ev) => {
+    if (ev.type === "heard") {
+      if (ev.text) $("chat").insertBefore(el("div", "bubble you", ev.text), typing);
+    } else if (ev.type === "text") {
+      const b = noobBubble();
+      b.textContent += (b.textContent ? " " : "") + ev.text;
+      $("chat").scrollTop = $("chat").scrollHeight;
+    } else if (ev.type === "audio") {
+      const bytes = Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: ev.mime || "audio/mpeg" }));
+      clips.push(url);
+      if (!blocked && !cancelled) { queue.push(url); playNext(); }
+    } else if (ev.type === "done") {
+      ok = ev.ok;
+      const b = noobBubble();
+      if (!b.textContent) b.textContent = ev.answer;
+      if (!ev.ok) b.classList.add("error");
+    }
+  };
+
+  const controller = new AbortController();
+  let silence = setTimeout(() => controller.abort(), 60000);            // nothing for 60 s: give up
+  try {
+    const res = await fetch(path, { ...request, signal: controller.signal });
+    if (res.status === 401) { location.href = "/login"; return; }
+    if (!res.ok || !res.body) throw new Error(`Server error ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      clearTimeout(silence);
+      silence = setTimeout(() => controller.abort(), 60000);
+      buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (line) handle(JSON.parse(line));
+      }
+    }
+  } catch (e) {
+    typing.remove();
+    const b = noobBubble();
+    if (!b.textContent) {
+      b.textContent = e.name === "AbortError" ? "NOOB took too long to answer. Please try again." : "Could not reach NOOB AI. Please try again.";
+      b.classList.add("error");
+    }
+  } finally {
+    clearTimeout(silence);
+    typing.remove();
+  }
+  streamDone = true;
+  if (!playing && !queue.length) allPlayed();
+  await finished;
+  if (blocked && clips.length && bubble) {                               // the phone blocked sound: offer a button
+    const play = el("button", "chip play-voice", "🔊 Play NOOB's voice");
+    play.onclick = async () => { for (const url of clips) await playClip(url); };
+    bubble.append(el("br"), play);
+  }
+  if (currentReply === reply) currentReply = null;
+  setState("idle");
+  if (fromVoice && ok && !blocked && !cancelled && $("convMode").checked) setTimeout(startListening, 400);  // keep talking
 }
 
 $("orbBtn").onclick = () => {

@@ -30,7 +30,7 @@ const char* WIFI_PASS = "YOUR_WIFI_PASSWORD";
 // ================================================================
 // The PC's address and the secret key are set by pairing in the NOOB App.
 
-#define FW_VERSION  "1.1"
+#define FW_VERSION  "1.2"
 #define DEVICE_PORT 4210         // NOOB listens here for the NOOB App
 #define SERVER_PORT 4211         // the NOOB server listens here
 #define PAIR_WINDOW_MS 120000    // a pairing code is valid for 2 minutes
@@ -338,6 +338,41 @@ size_t recordWhileHeld() {
   return count;
 }
 
+// Everything written here goes straight to the speaker (16-bit samples, with the volume applied).
+class SpeakerStream : public Stream {
+ public:
+  size_t write(const uint8_t* data, size_t len) override {
+    static int16_t out[512];
+    size_t count = 0, i = 0;
+    if (hasCarry && len > 0) {                          // a sample that was split between two pieces
+      out[count++] = scale((int16_t)(carry | (data[0] << 8)));
+      i = 1;
+      hasCarry = false;
+    }
+    for (; i + 1 < len; i += 2) {
+      out[count++] = scale((int16_t)(data[i] | (data[i + 1] << 8)));
+      if (count == 512) { play(out, count); count = 0; }
+    }
+    if (i < len) { carry = data[i]; hasCarry = true; }
+    play(out, count);
+    return len;
+  }
+  size_t write(uint8_t b) override { return write(&b, 1); }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+
+ private:
+  uint8_t carry = 0;
+  bool hasCarry = false;
+  static int16_t scale(int16_t s) { return (int16_t)(((int32_t)s * VOLUME_PERCENT) / 100); }
+  static void play(const int16_t* samples, size_t count) {
+    if (count == 0) return;
+    size_t written = 0;
+    i2s_channel_write(spkChan, samples, count * sizeof(int16_t), &written, portMAX_DELAY);
+  }
+};
+
 int postAudio(HTTPClient& http, size_t samples) {
   http.begin(serverUrl);
   http.setConnectTimeout(8000);
@@ -373,38 +408,12 @@ void askServerAndPlay(size_t samples) {
     return;
   }
 
+  // The answer arrives sentence by sentence while the PC is still making the rest, so NOOB starts
+  // speaking at once. writeToStream() unwraps the web "chunks" and passes pure audio to the speaker.
   showStatus("Speaking...", "");
-  WiFiClient* stream = http.getStreamPtr();
-  int remaining = http.getSize();          // -1 if unknown
-  static uint8_t buf[2048];
-  size_t have = 0;
-  unsigned long lastData = millis();
-
-  while (remaining != 0 && millis() - lastData < 15000) {
-    size_t avail = stream->available();
-    if (avail == 0) {
-      if (!http.connected()) break;
-      delay(2);
-      continue;
-    }
-    size_t space = sizeof(buf) - have;
-    int got = stream->readBytes(buf + have, avail < space ? avail : space);
-    if (got <= 0) continue;
-    lastData = millis();
-    have += got;
-    if (remaining > 0) remaining -= got;
-
-    size_t evenBytes = have & ~((size_t)1);   // whole 16-bit samples only
-    int16_t* s = (int16_t*)buf;
-    for (size_t i = 0; i < evenBytes / 2; i++) {
-      s[i] = (int16_t)(((int32_t)s[i] * VOLUME_PERCENT) / 100);
-    }
-    size_t written = 0;
-    i2s_channel_write(spkChan, buf, evenBytes, &written, portMAX_DELAY);
-
-    if (have & 1) buf[0] = buf[evenBytes];   // keep the odd leftover byte
-    have &= 1;
-  }
+  SpeakerStream speaker;
+  int result = http.writeToStream(&speaker);
+  if (result < 0) Serial.printf("[NOOB] Stream ended early: %s\n", http.errorToString(result).c_str());
 
   http.end();
   pcOnline = true;

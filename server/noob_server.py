@@ -16,15 +16,19 @@ Start: double-click "NOOB App.bat"   (or run:  python noob_server.py)
 """
 
 import asyncio
+import base64
 import collections
 import io
+import json
 import logging
 import os
+import queue
 import re
 import secrets
 import threading
 import time
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -34,8 +38,9 @@ import numpy as np
 import requests
 from ddgs import DDGS
 from faster_whisper import WhisperModel
-from flask import Flask, Response, abort, g, jsonify, redirect, request, send_from_directory, session
+from flask import Flask, Response, abort, g, jsonify, redirect, request, session
 
+import noob_brain
 import noob_devices
 import noob_settings
 import noob_social
@@ -45,10 +50,7 @@ from noob_memory import NoobMemory
 # ------------------------------ settings ------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 WHISPER_SIZE = os.environ.get("NOOB_WHISPER_MODEL", "small")     # tiny/base/small/medium/large-v3
-# AI brain 1: Google Gemini free tier (needs internet). If one model is busy, the next one is tried.
-GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest", "gemini-3.7-flash",
-                 "gemini-3.5-flash", "gemini-3.1-flash-lite"]
-GEMINI_TIME_LIMIT = 40           # seconds to keep trying Gemini models (the NOOB device waits up to 60 s)
+# AI brain 1: Google Gemini free tier (fast models first) - see noob_brain.py
 OLLAMA_URL = "http://localhost:11434/api/chat"                   # AI brain 2: offline backup (optional)
 OLLAMA_MODEL = "gemma3:4b"
 RECENT_MESSAGES = 12             # last 6 questions + answers are sent with each question
@@ -64,6 +66,8 @@ Remember what they told you and bring it up when it helps ("How is your knee tod
 Your answers are converted to speech, so:
 - Start EVERY reply with the language code of the language you are replying in, in square brackets, e.g. [en], [hi], [ta], [es]. This tag is removed before speaking.
 - Reply in the same language the user spoke, unless they ask for another language. If they mix Hindi and English, reply in Hindi.
+- Write every language in its own script (Hindi and Marathi in Devanagari, Tamil in Tamil script, and so on), never in English
+  letters, so the voice pronounces it correctly.
 - Speak naturally in plain sentences. No markdown, no bullet symbols, no emojis, no URLs, no tables.
 - Keep answers short (1 to 4 sentences) unless the user asks for more detail. For casual chat, answer briefly and ask a friendly follow-up question sometimes.
 - The user's words come from speech recognition, so they may contain small mistakes or be written in another
@@ -194,60 +198,6 @@ def any_audio_to_pcm(data):
 
 
 # ------------------------------ step 2: text -> answer ------------------------------
-last_good_model = GEMINI_MODELS[0]
-
-
-def ask_gemini_model(model, key, system, contents, timeout):
-    r = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-        json={"system_instruction": {"parts": [{"text": system}]}, "contents": contents},
-        timeout=timeout,
-    )
-    if r.status_code != 200:
-        try:
-            message = r.json()["error"]["message"]
-        except Exception:
-            message = r.text[:200]
-        raise RuntimeError(f"{model}: error {r.status_code}: {message[:200]}")
-    data = r.json()
-    candidates = data.get("candidates") or []
-    if not candidates:
-        raise RuntimeError(f"{model}: no answer ({data.get('promptFeedback')})")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-    if not text.strip():
-        raise RuntimeError(f"{model}: empty answer ({candidates[0].get('finishReason')})")
-    return text
-
-
-def ask_gemini(system, messages):
-    """Tries the free Gemini models one by one (starting with the last one that worked)."""
-    global last_good_model
-    key = settings()["gemini_api_key"] or os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        raise RuntimeError("no Gemini API key set (NOOB App > Settings)")
-    contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
-                for m in messages]
-    deadline = time.time() + GEMINI_TIME_LIMIT
-    models = [last_good_model] + [m for m in GEMINI_MODELS if m != last_good_model]
-    for model in models:
-        remaining = deadline - time.time()
-        if remaining < 3:
-            break
-        try:
-            text = ask_gemini_model(model, key, system, contents, timeout=min(20, remaining))
-            last_good_model = model
-            return text
-        except requests.RequestException as e:
-            log(f"   [gemini] {model}: no reply in time ({type(e).__name__}), trying another model")
-        except RuntimeError as e:
-            if any(code in str(e) for code in ("error 400", "error 401", "error 403")):
-                raise RuntimeError(f"Gemini key problem - check it in Settings ({e})")
-            log(f"   [gemini] {e} - trying another model")
-    raise RuntimeError("all Gemini models are busy right now")
-
-
 def ask_ollama(system, messages):
     r = requests.post(
         OLLAMA_URL,
@@ -297,16 +247,6 @@ def now_text():
     return datetime.now().strftime("%A, %d %B %Y, %I:%M %p")
 
 
-def think(system, messages):
-    """Asks Gemini first, then the offline Ollama brain. Returns the reply, or None if both fail."""
-    for name, brain in (("Gemini", ask_gemini), ("Ollama", ask_ollama)):
-        try:
-            return brain(system, messages)
-        except Exception as e:                       # this brain failed: try the next one
-            log(f"!! {name}: {e}")
-    return None
-
-
 def search_request(reply):
     match = re.search(r"\bSEARCH\s*:\s*(.+)", reply)
     return match.group(1).strip() if match else None
@@ -323,38 +263,224 @@ def web_search(query):
     return f"Web search results for '{query}' (today is {now_text()}):\n{lines or 'No results found.'}"
 
 
-def ask_ai(user_id, user_text):
-    """The whole 'thinking' step. Returns the answer with its language tag, or None if no AI is reachable."""
+VOICE_NOTE = """
+
+The user's newest message is a voice recording (the attached audio). Start your reply with exactly one line:
+HEARD: <the user's words exactly as spoken, in their own language and script>
+Then write your reply on the next line, starting with the language tag. If the recording has no clear speech,
+write "HEARD:" with nothing after it, and ask the user to say it again."""
+
+SENTENCE_END = re.compile(r"[.!?।॥]+[\"'”’)\]]*(?:\s+|$)|\n+")
+MEMORY_MARK = re.compile(r"\b(?:REMEMBER|FORGET)\s*:")
+LANG_TAG = re.compile(r"\s*\[([a-zA-Z]{2,3})(?:-[a-zA-Z]+)?\]\s*")
+
+
+def split_sentences(text):
+    """Splits text into sentences, keeping their end marks (. ! ? ।) so the voice sounds right."""
+    parts, pos = [], 0
+    for match in SENTENCE_END.finditer(text):
+        parts.append(text[pos:match.end()])
+        pos = match.end()
+    if pos < len(text):
+        parts.append(text[pos:])
+    return parts
+
+
+class AnswerStream:
+    """Reads the AI's answer as it streams in and hands out finished sentences to speak at once.
+    Handles the HEARD line (voice), a SEARCH request, the [language] tag and REMEMBER/FORGET lines."""
+
+    def __init__(self, voice, fallback_lang="en"):
+        self.voice = voice
+        self.raw = ""
+        self.heard = None if voice else ""
+        self.answer_start = None if voice else 0
+        self.text_start = None
+        self.lang = fallback_lang
+        self.search_query = None
+        self.spoken = 0
+        self.stopped = False                          # REMEMBER/FORGET reached: nothing more to speak
+
+    def feed(self, piece="", final=False):
+        """Returns a list of events: ("heard", text) and ("sentence", text, lang)."""
+        self.raw += piece
+        events = []
+        if self.answer_start is None:                 # voice: first comes "HEARD: ..."
+            start = len(self.raw) - len(self.raw.lstrip())
+            head = self.raw[start:]
+            if head[:5].upper() == "HEARD":
+                if "\n" not in head and not final:
+                    return events
+                line = head.split("\n", 1)[0]
+                self.heard = line.split(":", 1)[1].strip() if ":" in line else ""
+                self.answer_start = start + len(line) + 1
+            elif len(head) >= 6 or final:             # the AI skipped the HEARD line
+                self.heard = ""
+                self.answer_start = start
+            else:
+                return events
+            events.append(("heard", self.heard))
+        body = self.raw[self.answer_start:]
+        if self.text_start is None:                   # is it a web search? then the [language] tag
+            stripped = body.lstrip()
+            if len(stripped) < 8 and not final:
+                return events
+            if stripped.upper().startswith("SEARCH"):
+                if "\n" in stripped or final:
+                    self.search_query = stripped.split(":", 1)[-1].split("\n")[0].strip() or "latest news"
+                return events
+            tag = LANG_TAG.match(body)
+            if tag:
+                self.lang = tag.group(1).lower()
+                self.text_start = self.answer_start + tag.end()
+            else:
+                self.text_start = self.answer_start + len(body) - len(stripped)
+        speakable = self.raw[self.text_start:]
+        mark = MEMORY_MARK.search(speakable)
+        if mark:
+            speakable = speakable[:mark.start()]
+            self.stopped = True
+        pending = speakable[self.spoken:]
+        cut = 0
+        for match in SENTENCE_END.finditer(pending):
+            cut = match.end()
+        if not cut and len(pending) > 160:            # a very long sentence: speak it in parts
+            comma = pending.rfind(", ", 60, 160)
+            cut = comma + 2 if comma > 0 else pending.rfind(" ", 60, 160) + 1
+        if final or self.stopped:
+            cut = len(pending)
+        if cut > 0:
+            for sentence in split_sentences(pending[:cut]):
+                sentence = clean_for_speech(sentence)
+                if sentence:
+                    events.append(("sentence", sentence, self.lang))
+            self.spoken += cut
+        return events
+
+    def answer(self):
+        if self.text_start is None:
+            return ""
+        text = self.raw[self.text_start:]
+        mark = MEMORY_MARK.search(text)
+        return (text[:mark.start()] if mark else text).strip()
+
+
+def voice_for_ai(pcm):
+    """The recording, compressed for a fast upload (Ogg/Opus: ~10 KB instead of ~140 KB for 5 seconds)."""
+    try:
+        buffer = io.BytesIO()
+        with av.open(buffer, "w", format="ogg") as out:
+            stream = out.add_stream("libopus", rate=SAMPLE_RATE)
+            stream.layout = "mono"
+            stream.bit_rate = 24000
+            frame = av.AudioFrame.from_ndarray(np.frombuffer(pcm, dtype=np.int16).reshape(1, -1),
+                                               format="s16", layout="mono")
+            frame.sample_rate = SAMPLE_RATE
+            for packet in stream.encode(frame):
+                out.mux(packet)
+            for packet in stream.encode(None):
+                out.mux(packet)
+        return "audio/ogg", buffer.getvalue()
+    except Exception as e:                            # never fail because of compression
+        log(f"!! Could not compress the recording ({e}); sending it uncompressed")
+        return "audio/wav", pcm_to_wav(pcm)
+
+
+def gemini_key():
+    return settings()["gemini_api_key"] or os.environ.get("GEMINI_API_KEY", "")
+
+
+def history_contents(user_id):
+    return [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+            for m in memory.recent_messages(user_id, RECENT_MESSAGES)]
+
+
+def converse(user_id, text=None, pcm=None):
+    """The whole thinking step, streamed. Yields ("heard", words) for voice, ("sentence", text, lang) as soon as
+    each sentence of the answer is ready, and finally ("done", answer, lang, ok)."""
+    voice = pcm is not None
+    started = time.time()
     system = SYSTEM_PROMPT + memory_prompt(user_id) + f"\n\nCurrent date and time (India): {now_text()}"
-    messages = memory.recent_messages(user_id, RECENT_MESSAGES) + [{"role": "user", "content": user_text}]
+    if voice:
+        audio = np.frombuffer(pcm, dtype=np.int16)
+        if audio.size < SAMPLE_RATE // 4 or int(np.abs(audio).max()) < 200:      # silence: don't ask the AI
+            yield ("heard", "")
+            yield ("sentence", NOT_HEARD, "en")
+            yield ("done", NOT_HEARD, "en", False)
+            return
+        mime, data = voice_for_ai(pcm)
+        latest = {"role": "user", "parts": [{"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode()}}]}
+    else:
+        latest = {"role": "user", "parts": [{"text": text}]}
+    history = history_contents(user_id)
 
-    reply = think(system, messages)
-    query = search_request(reply) if reply else None
-    if query:                                        # the AI needs live information: search, then ask again
-        messages = messages + [
-            {"role": "assistant", "content": f"SEARCH: {query}"},
-            {"role": "user", "content": web_search(query) +
-             "\n\nNow answer my original question using these results. Do not search again."},
-        ]
-        reply = think(system, messages)
-        if reply and search_request(reply):
-            reply = "Sorry, I could not find that information right now."
-    if reply is None:
-        return None
+    stream = AnswerStream(voice)
+    try:
+        for piece in noob_brain.gemini_stream(gemini_key(), system + (VOICE_NOTE if voice else ""),
+                                              history + [latest], log):
+            for event in stream.feed(piece):
+                yield event
+            if stream.search_query:
+                break
+    except noob_brain.BrainUnavailable as e:
+        log(f"!! Gemini: {e}")
+        if stream.text_start is None and not stream.search_query:      # nothing said yet: use the offline backup
+            if voice:
+                words, heard_lang = speech_to_text(pcm)
+                stream = AnswerStream(False, heard_lang)
+                stream.heard = words
+                yield ("heard", words)
+                if not words:
+                    yield ("sentence", NOT_HEARD, "en")
+                    yield ("done", NOT_HEARD, "en", False)
+                    return
+            else:
+                stream = AnswerStream(False)
+                stream.heard = text
+            messages = [{"role": m["role"], "content": m["content"]}
+                        for m in memory.recent_messages(user_id, RECENT_MESSAGES)] + [
+                        {"role": "user", "content": stream.heard}]
+            try:
+                reply = ask_ollama(system, messages)
+            except Exception as err:
+                log(f"!! Ollama: {err}")
+                yield ("sentence", NO_BRAIN, "en")
+                yield ("done", NO_BRAIN, "en", False)
+                return
+            for event in stream.feed(reply, final=True):
+                yield event
+    heard = stream.heard if voice else text
+    if voice and stream.heard is None:
+        heard = ""
 
-    answer = apply_memory_commands(reply, user_id) or "Sorry, I have no answer for that."
-    memory.add_exchange(user_id, user_text, answer)
-    return answer
+    if stream.search_query:                           # the AI needs live information: search, then answer
+        query = stream.search_query
+        followup = history + [{"role": "user", "parts": [{"text": heard or "(voice message)"}]},
+                              {"role": "model", "parts": [{"text": f"SEARCH: {query}"}]},
+                              {"role": "user", "parts": [{"text": web_search(query) +
+                               "\n\nNow answer my original question using these results. Do not search again."}]}]
+        stream = AnswerStream(False, stream.lang)
+        try:
+            for piece in noob_brain.gemini_stream(gemini_key(), system, followup, log):
+                for event in stream.feed(piece):
+                    yield event
+        except noob_brain.BrainUnavailable as e:
+            log(f"!! Gemini: {e}")
+    for event in stream.feed(final=True):
+        yield event
+
+    answer = stream.answer()
+    if not answer:
+        yield ("sentence", NO_BRAIN, "en")
+        yield ("done", NO_BRAIN, "en", False)
+        return
+    apply_memory_commands(stream.raw[stream.text_start:], user_id)
+    memory.add_exchange(user_id, heard or "(voice message)", f"[{stream.lang}] {answer}")
+    log(f"NOOB ({stream.lang}, {noob_brain.last_model}, {time.time() - started:.1f} s): {answer}")
+    yield ("done", answer, stream.lang, True)
 
 
 # ------------------------------ step 3: answer -> speech ------------------------------
-def split_language_tag(reply, fallback_lang):
-    match = re.match(r"\s*\[([a-zA-Z]{2,3})(?:-[a-zA-Z]+)?\]\s*", reply)
-    if match:
-        return match.group(1).lower(), reply[match.end():]
-    return fallback_lang, reply
-
-
 def clean_for_speech(text):
     text = re.sub(r"https?://\S+", "", text)                        # drop links
     text = re.sub(r"\[[a-zA-Z]{2,3}(?:-[a-zA-Z]+)?\]", "", text)    # drop stray language tags
@@ -386,12 +512,110 @@ def pcm_to_wav(pcm):
     return buffer.getvalue()
 
 
-def speak_pcm(text, lang="en"):
-    return Response(text_to_speech(clean_for_speech(text), lang), mimetype="application/octet-stream")
-
-
 NOT_HEARD = "Sorry, I did not hear anything. Please try again."
 NO_BRAIN = "Sorry, I cannot reach my brain right now. Please check the internet and try again."
+
+
+def voice_mp3(text, lang):
+    """NOOB's voice for one sentence (MP3)."""
+    voice = VOICES.get(lang) or VOICES.get("en")
+
+    async def synthesize():
+        mp3 = bytearray()
+        async for chunk in edge_tts.Communicate(text, voice).stream():
+            if chunk["type"] == "audio":
+                mp3 += chunk["data"]
+        return bytes(mp3)
+
+    return asyncio.run(synthesize())
+
+
+voice_workers = ThreadPoolExecutor(max_workers=4)      # makes the next sentences' voice while one is playing
+
+
+def spoken_stream(events, make_audio):
+    """Turns converse() events into (kind, value) items in order, making each sentence's voice in the background.
+    kind is "heard", "text", "audio" or "done"."""
+    queue = []                                           # voice being made, in sentence order
+    def ready(wait=False):
+        while queue and (wait or queue[0].done()):
+            try:
+                yield ("audio", queue.pop(0).result())
+            except Exception as e:
+                log(f"!! Voice: {e}")
+    for event in events:
+        if event[0] == "heard":
+            yield ("heard", event[1])
+        elif event[0] == "sentence":
+            yield ("text", event[1])
+            queue.append(voice_workers.submit(make_audio, event[1], event[2]))
+        elif event[0] == "done":
+            yield from ready(wait=True)
+            yield ("done", event[1:])
+            return
+        yield from ready()
+    yield from ready(wait=True)
+
+
+def in_background(items):
+    """Runs the answer in its own thread and hands its items over as they come. If the phone or device
+    disconnects half-way, the answer still finishes and is saved to memory."""
+    handover = queue.Queue()
+
+    def work():
+        try:
+            for item in items:
+                handover.put(item)
+        except Exception as e:
+            log(f"!! Answer failed: {e}")
+        finally:
+            handover.put(None)
+    threading.Thread(target=work, daemon=True).start()
+    while True:
+        item = handover.get()
+        if item is None:
+            return
+        yield item
+
+
+def app_stream(user_id, name, text=None, pcm=None):
+    """Streams the answer to the NOOB App: one JSON line per event (heard, text, audio, done)."""
+    def generate():
+        for kind, value in in_background(spoken_stream(converse(user_id, text=text, pcm=pcm), voice_mp3)):
+            if kind == "heard":
+                log(f"You ({name}, voice): {value}")
+                line = {"type": "heard", "text": value}
+            elif kind == "text":
+                line = {"type": "text", "text": value}
+            elif kind == "audio":
+                line = {"type": "audio", "mime": "audio/mpeg", "data": base64.b64encode(value).decode()}
+            else:
+                answer, lang, ok = value
+                line = {"type": "done", "answer": answer, "lang": lang, "ok": ok}
+            yield json.dumps(line, ensure_ascii=False) + "\n"
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.post("/ask")
+def ask():
+    """The NOOB device sends raw 16 kHz PCM audio here. The answer comes back as raw 16 kHz PCM, sentence by
+    sentence, so NOOB starts speaking while the rest is still being made (the device reads until the end)."""
+    device = device_for_key(request.headers.get("X-Device-Key", ""))
+    if not device:
+        abort(403)
+    DEVICE_SEEN[device["mac"]] = time.time()
+    user_id, name, pcm = device["user_id"], device["name"], request.get_data()
+
+    def generate():
+        for kind, value in in_background(spoken_stream(converse(user_id, pcm=pcm),
+                                                       lambda t, lang: any_audio_to_pcm(voice_mp3(t, lang)))):
+            if kind == "heard":
+                log(f"You ({name}): {value}")
+            elif kind == "audio":
+                yield value
+    return Response(generate(), mimetype="application/octet-stream")
+
 
 
 # ------------------------------ accounts and sign-in ------------------------------
@@ -664,33 +888,6 @@ def ascii_name(name):
     return (clean.split() or ["friend"])[0][:12]
 
 
-@app.post("/ask")
-def ask():
-    """The NOOB device sends raw 16 kHz PCM audio here and plays the raw PCM answer."""
-    device = device_for_key(request.headers.get("X-Device-Key", ""))
-    if not device:
-        abort(403)
-    DEVICE_SEEN[device["mac"]] = time.time()
-    user_id = device["user_id"]
-    pcm = request.get_data()
-    if len(pcm) < SAMPLE_RATE // 2:                  # less than 0.25 s of audio
-        return speak_pcm(NOT_HEARD)
-
-    started = time.time()
-    user_text, heard_lang = speech_to_text(pcm)
-    log(f"You ({device['name']}, {heard_lang}): {user_text}")
-    if not user_text:
-        return speak_pcm(NOT_HEARD)
-    reply = ask_ai(user_id, user_text)
-    if reply is None:
-        return speak_pcm(NO_BRAIN)
-    lang, answer = split_language_tag(reply, heard_lang)
-    log(f"NOOB ({lang}): {answer}")
-    audio = speak_pcm(answer, lang)
-    log(f"   answered in {time.time() - started:.1f} s")
-    return audio
-
-
 @app.get("/device/ping")
 def device_ping():
     """Every few seconds the NOOB device says hello, so the app knows it is online (and it knows the PC is)."""
@@ -732,7 +929,7 @@ def api_status():
     ip = noob_devices.local_ip()
     devices = my_devices()
     return jsonify(version=VERSION, ip=ip, server_url=f"http://{ip}:{PORT}/ask", whisper=WHISPER_SIZE,
-                   gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=last_good_model,
+                   gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=noob_brain.last_model,
                    facts=len(memory.all_facts(g.user["id"])), messages=len(memory.recent_log(g.user["id"], 100000)),
                    user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"]),
                          "noob_username": g.user.get("noob_username") or ""},
@@ -741,39 +938,26 @@ def api_status():
                    languages=len(VOICES), time=now_text(), online_url=noob_tunnel.public_url())
 
 
-def answer_json(user_text, heard_lang="en"):
-    if not user_text:
-        return jsonify(you="", answer=NOT_HEARD, lang="en", ok=False)
-    reply = ask_ai(g.user["id"], user_text)
-    if reply is None:
-        return jsonify(you=user_text, answer=NO_BRAIN, lang="en", ok=False)
-    lang, answer = split_language_tag(reply, heard_lang)
-    log(f"NOOB ({lang}): {answer}")
-    return jsonify(you=user_text, answer=answer, lang=lang, ok=True)
-
-
 @app.post("/api/chat")
 @signed_in
 def api_chat():
     text = str(body().get("text", "")).strip()[:2000]
+    if not text:
+        abort(400)
     log(f"You ({g.user['username']}, typed): {text}")
-    return answer_json(text)
+    return app_stream(g.user["id"], g.user["username"], text=text)
 
 
 @app.post("/api/voice")
 @signed_in
 def api_voice():
-    """Voice from the app's microphone (any audio format)."""
+    """Voice from the app's microphone (any audio format); the AI listens to it directly."""
     try:
         pcm = any_audio_to_pcm(request.get_data())
     except Exception as e:
         log(f"!! Could not read the recording: {e}")
-        return jsonify(you="", answer=NOT_HEARD, lang="en", ok=False)
-    if len(pcm) < SAMPLE_RATE // 2:
-        return jsonify(you="", answer=NOT_HEARD, lang="en", ok=False)
-    text, heard_lang = speech_to_text(pcm)
-    log(f"You ({g.user['username']}, voice, {heard_lang}): {text}")
-    return answer_json(text, heard_lang)
+        pcm = b""
+    return app_stream(g.user["id"], g.user["username"], pcm=pcm)
 
 
 @app.post("/api/speak")

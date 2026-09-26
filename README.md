@@ -17,7 +17,8 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 |---|---|
 | Talk by voice — on the NOOB device **or** in the NOOB App | Hold the button on NOOB, or tap the orb in the app |
 | Conversation mode | The app keeps listening after each answer, like chatting with a friend |
-| Understands 99 languages (Hindi, English, Tamil, Bengali, Marathi, Gujarati, ...) | Whisper speech recognition with automatic language detection |
+| **Fast answers** — first words in ~2–4 s, voice starts while the rest is still being written | Voice goes straight to Gemini (compressed), minimal "thinking", streaming sentence by sentence |
+| Understands every major language (Hindi, English, Tamil, Bengali, Marathi, Gujarati, ...) | Gemini listens to the voice directly; Whisper on the PC is the offline backup |
 | Replies in the same language, female voice (70+ languages) | Microsoft Edge neural voices |
 | General knowledge, today's date & time, live news / weather / scores | Google Gemini (free tier) + PC clock + free DuckDuckGo web search |
 | Works offline too | Automatic backup to a local AI (Ollama + Gemma 3) |
@@ -57,12 +58,14 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
    at 16,000 samples per second and stores up to 10 seconds of audio in PSRAM.
    (In the app, your PC's microphone is used and NOOB stops listening when you stop talking.)
 2. **Send** – The audio is sent over Wi-Fi to the NOOB server on your PC.
-3. **Understand** – Whisper converts speech to text and detects the language.
+3. **Understand** – The recording is compressed (~10 KB) and sent straight to Gemini, which understands
+   speech in every language and writes down what it heard. (Offline backup: Whisper on the PC.)
 4. **Think** – The text goes to the AI with NOOB's friendly personality, healthcare safety rules, your
    About Me details, everything NOOB remembers, the last few messages, and today's date and time.
    If the AI needs live information it asks for a web search (`SEARCH:`), and it saves or deletes memories
    with `REMEMBER:` / `FORGET:` lines (never spoken).
-5. **Speak** – The answer becomes speech with a female voice for that language and is streamed back.
+5. **Speak** – As soon as the first sentence of the answer is written, it is turned into NOOB's female voice
+   and sent; the next sentences follow while the first one is playing.
 6. **Play** – The ESP32-S3 streams the audio to the MAX98357A amplifier over I2S and the speaker plays it.
 
 **Why a server?** An ESP32 has 8 MB of memory; a modern AI model needs many gigabytes. So the ESP32
@@ -71,8 +74,8 @@ commercial smart speakers.
 
 | Part | Service | Cost |
 |---|---|---|
-| Speech → text | Whisper (runs on the PC) | Free |
-| AI brain | Google Gemini API free tier (`gemini-3.8-flash`) | Free (daily limit, plenty for personal use) |
+| Speech → text | Gemini (listens directly); Whisper on the PC as offline backup | Free |
+| AI brain | Google Gemini API free tier (fast "flash-lite" models first, others as backup) | Free (daily limit per model) |
 | Backup AI brain | Ollama + Gemma 3 4B (runs on the PC, offline) | Free |
 | Female voice | Microsoft Edge neural voices | Free |
 | Live web search | DuckDuckGo (no account needed) | Free |
