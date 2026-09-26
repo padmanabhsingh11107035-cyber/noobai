@@ -783,7 +783,7 @@ def no_caching_of_personal_data(response):
 def page(name):
     """Serves an app page with version tags on its files, so browsers and Cloudflare never use an old copy."""
     html = open(os.path.join(app.static_folder, name), encoding="utf-8").read()
-    for asset in ("style.css", "app.js"):
+    for asset in ("style.css", "app.js", "gem.js"):
         version = int(os.path.getmtime(os.path.join(app.static_folder, asset)))
         html = html.replace(f"/static/{asset}\"", f"/static/{asset}?v={version}\"")
     return Response(html, mimetype="text/html")

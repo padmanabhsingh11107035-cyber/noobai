@@ -11,7 +11,7 @@
 <body class="auth-body">
 <div class="bg-glow"></div>
 <div class="card auth-card handoff">
-  <div class="nx handoff-3d" aria-hidden="true"><div class="nx-halo"></div><div class="nx-scene"><div class="nx-ring r1"><i></i><u></u></div><div class="nx-ring r2"><i></i><u></u></div><div class="nx-ring r3"><i></i><u></u></div><div class="nx-orb"><b></b><b></b><b></b><b></b><div class="nx-gloss"></div><div class="nx-eyes"><em></em><em></em></div></div></div><span class="nx-spark"></span><span class="nx-spark"></span><span class="nx-spark"></span><span class="nx-spark"></span><span class="nx-spark"></span></div>
+  <div class="gem handoff-3d" aria-hidden="true"><div class="gem-halo"></div><canvas></canvas></div>
   <h2 id="title">Signing you in with NOOB…</h2>
   <p class="muted" id="text">One moment.</p>
   <form id="inviteForm" hidden>
@@ -65,5 +65,6 @@
   $("inviteForm").onsubmit = (e) => { e.preventDefault(); signIn($("invite").value.trim()); };
   if (token) signIn(); else location.replace("/login");
 </script>
+<script src="/static/gem.js"></script>
 </body>
 </html>

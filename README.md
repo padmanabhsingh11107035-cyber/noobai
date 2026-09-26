@@ -31,7 +31,7 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | **Continue with NOOB** | Sign in with your NOOB social media account (nooob.xyz) — no new password needed |
 | Free trial for people without NOOB | Accounts made without a NOOB account get 5 free questions, then link NOOB for unlimited |
 | 5-star rating | After the first 15 questions, NOOB AI asks for a 1–5 star rating (the owner sees them in Settings) |
-| Animated 3D core and logo | A glass orb full of swirling coloured light with a friendly blinking face, inside three spinning 3D rainbow rings with comets (pure CSS 3D) |
+| Animated 3D gem and logo | A colourful faceted crystal (240 facets, each with a white outline and an inner triangle) rotating in 3D with lighting — drawn on a canvas by `web/gem.js`, no libraries; it spins faster while NOOB thinks |
 | **Accounts** — family and friends get their own NOOB | Sign in / create account; each person has their own memory, About Me and devices (new accounts need an invite code) |
 | Robot ⇄ app always know about each other | NOOB says hello to the PC every 15 s: the app shows it **Online / Offline**, and NOOB's screen shows whether the PC is on |
 | **Connect to nearby devices** | The app finds NOOB devices on your Wi-Fi and pairs with a 4-digit code on NOOB's screen |
@@ -392,6 +392,7 @@ noob-esp32-assistant/
         ├── noob-signin.html   ← automatic sign-in from the NOOB social app
         ├── style.css
         ├── app.js
+        ├── gem.js           ← the rotating 3D gem (canvas)
         ├── logo.svg           ← the NOOB AI logo
         └── loading.html       ← start-up screen
 ```
