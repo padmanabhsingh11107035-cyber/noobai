@@ -101,6 +101,8 @@ Permanent memory (survives power-off):
   To update a fact, FORGET the old id and REMEMBER the new fact.
 - REMEMBER and FORGET lines are never spoken. Never REMEMBER something already in your memory list or profile.
 - Use what you remember to personalise answers, especially health answers (allergies, conditions, medicines, age).
+- Private details such as phone numbers, email and home address: use them only when the user asks about them.
+- When the profile has a birthday, work out the user's age from it and today's date; wish them on their birthday.
 """
 
 # Preferred voices (all female); if one is missing, the first female voice for that language is used.
@@ -622,8 +624,18 @@ def sign_in_noob_user(noob, data):
         if not profile.get("Name"):
             memory.set_profile(user_id, {**profile, "Name": noob["name"][:60]})
         log(f"New account from NOOB: @{noob['username']}" + (" (owner)" if first else ""))
+    fill_about_me(user_id, noob.get("details", {}))
     start_session(user_id)
     return jsonify(ok=True)
+
+
+def fill_about_me(user_id, details):
+    """Copies the person's NOOB signup details into their About Me, only where a field is still empty
+    (whatever they typed themselves is never overwritten)."""
+    profile = memory.get_profile(user_id)
+    missing = {k: v for k, v in details.items() if v and not profile.get(k)}
+    if missing:
+        memory.set_profile(user_id, {**profile, **missing})
 
 
 @app.post("/api/auth/noob/link")
@@ -634,6 +646,7 @@ def api_noob_link():
         return error
     if not memory.link_noob(g.user["id"], noob["id"], noob["username"]):
         return jsonify(ok=False, error="That NOOB account is already linked to another account here."), 409
+    fill_about_me(g.user["id"], noob.get("details", {}))
     log(f"{g.user['username']} linked NOOB account @{noob['username']}")
     return jsonify(ok=True, noob_username=noob["username"])
 

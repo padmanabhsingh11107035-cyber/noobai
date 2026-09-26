@@ -2,9 +2,12 @@
 "Continue with NOOB": sign in to the NOOB AI Assistant with a NOOB social media account (nooob.xyz).
 
 It checks the username/email and password with NOOB's own login service (the same one the
-nooob.xyz website uses), reads the account's username and display name, and ends that login
+nooob.xyz website uses), reads the account's signup details (name, birthday, phone, email, city...), and ends that login
 straight away. The NOOB password is never saved or logged by the assistant.
 """
+
+import re
+from datetime import date
 
 import requests
 
@@ -12,6 +15,44 @@ NOOB_SOCIAL_URL = "https://abffssydapumuhwgzeck.supabase.co"
 # The website's public "publishable" key: safe to share, it can only do what NOOB's security rules allow.
 NOOB_SOCIAL_KEY = "sb_publishable_g20GG46EXeMr1jcNwVJtmw_rAZKsuA3"
 TIMEOUT = 15
+
+
+def details_from(me):
+    """The person's NOOB signup and profile details, as "About Me" fields for NOOB AI."""
+    def text(key):
+        value = me.get(key)
+        return str(value).strip() if value not in (None, "") else ""
+
+    details = {}
+    name = " ".join(part for part in (text("firstName"), text("lastName")) if part) or text("displayName")
+    if name:
+        details["Name"] = name
+    birthday = text("dateOfBirth")[:10]
+    if birthday:
+        try:
+            details["Birthday"] = date.fromisoformat(birthday).strftime("%d %B %Y").lstrip("0")
+        except ValueError:
+            details["Birthday"] = birthday
+    for key, field in (("gender", "Gender"), ("pronouns", "Pronouns"), ("city", "City"), ("email", "Email"),
+                       ("website", "Website"), ("bio", "About me")):
+        if text(key):
+            details[field] = text(key)
+    phone = re.sub(r"[^\d]", "", text("mobileNumber"))
+    if phone:
+        code = re.search(r"\+?(\d{1,4})\)?\s*$", text("countryCode")) if text("countryCode") else None
+        details["Phone"] = f"+{code.group(1)} {phone}" if code else phone
+    interests = me.get("interests")
+    if isinstance(interests, list) and interests:
+        details["Hobbies and interests"] = ", ".join(str(i) for i in interests if i)
+    if text("username"):
+        details["NOOB username"] = "@" + text("username")
+    business = [part for part in (text("businessCategory"),
+                                  text("businessEmail") and "email " + text("businessEmail"),
+                                  text("businessPhone") and "phone " + text("businessPhone"),
+                                  text("businessAddress") and "address " + text("businessAddress")) if part]
+    if business:
+        details["Business"] = "; ".join(business)
+    return {k: v[:1000] for k, v in details.items()}
 
 
 class NoobSocialError(Exception):
@@ -67,7 +108,8 @@ def verify_login(identifier, password):
     if me.get("isSuspended"):
         raise NoobSocialError("This NOOB account has been suspended.")
     username = str(me.get("username") or "")
-    return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user")}
+    return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user"),
+            "details": details_from(me)}
 
 
 def verify_token(token):
@@ -91,4 +133,5 @@ def verify_token(token):
     if me.get("isSuspended"):
         raise NoobSocialError("This NOOB account has been suspended.")
     username = str(me.get("username") or "")
-    return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user")}
+    return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user"),
+            "details": details_from(me)}

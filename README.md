@@ -248,6 +248,10 @@ Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group 
 - Every person has their own private memory, chats, About Me and devices. Nobody can see anyone else's data,
   also not on a shared phone: a new NOOB AI sign-in always signs the previous person out first.
 - Already have an assistant account? **Settings → My account → Link NOOB account**, then you can use either way.
+- Every NOOB sign-in fills **About Me** with the person's NOOB signup details — name, birthday, gender, phone,
+  email, city, bio, interests, website and business details — but only fields that are still empty, so anything
+  the person typed is never overwritten. NOOB works out their age from the birthday and mentions phone numbers or
+  email only when asked. Each person only ever gets their own details.
 
 ### Use NOOB from anywhere with your own domain (optional, free)
 

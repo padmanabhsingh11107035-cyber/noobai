@@ -3,10 +3,11 @@
 
 const $ = (id) => document.getElementById(id);
 const PROFILE_FIELDS = [
-  ["Name", 1], ["Age", 1], ["Gender", 1], ["City", 1], ["Preferred language", 1], ["Blood group", 1],
-  ["Height and weight", 1], ["Allergies", 1], ["Medical conditions", 2], ["Current medicines", 2],
-  ["Doctor name and phone", 1], ["Emergency contact", 1], ["Hobbies and interests", 1], ["Birthday", 1],
-  ["About me", 3],
+  ["Name", 1], ["Age", 1], ["Gender", 1], ["Pronouns", 1], ["Birthday", 1], ["City", 1],
+  ["Phone", 1], ["Email", 1], ["Preferred language", 1], ["Blood group", 1], ["Height and weight", 1], ["Allergies", 1],
+  ["Medical conditions", 2], ["Current medicines", 2],
+  ["Doctor name and phone", 1], ["Emergency contact", 1], ["Hobbies and interests", 1], ["Website", 1],
+  ["NOOB username", 1], ["Business", 1], ["About me", 3],
 ];
 
 // ---------------------------------------------------------------- helpers
