@@ -41,7 +41,10 @@ from noob_memory import NoobMemory
 # ------------------------------ settings ------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 WHISPER_SIZE = os.environ.get("NOOB_WHISPER_MODEL", "small")     # tiny/base/small/medium/large-v3
-GEMINI_MODEL = "gemini-3.8-flash"                                # AI brain 1: free tier, needs internet
+# AI brain 1: Google Gemini free tier (needs internet). If one model is busy, the next one is tried.
+GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest", "gemini-3.7-flash",
+                 "gemini-3.5-flash", "gemini-3.1-flash-lite"]
+GEMINI_TIME_LIMIT = 40           # seconds to keep trying Gemini models (the NOOB device waits up to 60 s)
 OLLAMA_URL = "http://localhost:11434/api/chat"                   # AI brain 2: offline backup (optional)
 OLLAMA_MODEL = "gemma3:4b"
 RECENT_MESSAGES = 12             # last 6 questions + answers are sent with each question
@@ -185,31 +188,58 @@ def any_audio_to_pcm(data):
 
 
 # ------------------------------ step 2: text -> answer ------------------------------
+last_good_model = GEMINI_MODELS[0]
+
+
+def ask_gemini_model(model, key, system, contents, timeout):
+    r = requests.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+        json={"system_instruction": {"parts": [{"text": system}]}, "contents": contents},
+        timeout=timeout,
+    )
+    if r.status_code != 200:
+        try:
+            message = r.json()["error"]["message"]
+        except Exception:
+            message = r.text[:200]
+        raise RuntimeError(f"{model}: error {r.status_code}: {message[:200]}")
+    data = r.json()
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise RuntimeError(f"{model}: no answer ({data.get('promptFeedback')})")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    if not text.strip():
+        raise RuntimeError(f"{model}: empty answer ({candidates[0].get('finishReason')})")
+    return text
+
+
 def ask_gemini(system, messages):
+    """Tries the free Gemini models one by one (starting with the last one that worked)."""
+    global last_good_model
     key = settings()["gemini_api_key"] or os.environ.get("GEMINI_API_KEY", "")
     if not key:
         raise RuntimeError("no Gemini API key set (NOOB App > Settings)")
     contents = [{"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
                 for m in messages]
-    r = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-        headers={"x-goog-api-key": key, "Content-Type": "application/json"},
-        json={"system_instruction": {"parts": [{"text": system}]}, "contents": contents},
-        timeout=40,
-    )
-    if r.status_code == 429:
-        raise RuntimeError("Gemini free limit reached for now (429)")
-    if r.status_code != 200:
-        raise RuntimeError(f"Gemini error {r.status_code}: {r.text[:300]}")
-    data = r.json()
-    candidates = data.get("candidates") or []
-    if not candidates:
-        raise RuntimeError(f"Gemini gave no answer: {data.get('promptFeedback')}")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
-    if not text.strip():
-        raise RuntimeError(f"Gemini gave an empty answer ({candidates[0].get('finishReason')})")
-    return text
+    deadline = time.time() + GEMINI_TIME_LIMIT
+    models = [last_good_model] + [m for m in GEMINI_MODELS if m != last_good_model]
+    for model in models:
+        remaining = deadline - time.time()
+        if remaining < 3:
+            break
+        try:
+            text = ask_gemini_model(model, key, system, contents, timeout=min(20, remaining))
+            last_good_model = model
+            return text
+        except requests.RequestException as e:
+            log(f"   [gemini] {model}: no reply in time ({type(e).__name__}), trying another model")
+        except RuntimeError as e:
+            if any(code in str(e) for code in ("error 400", "error 401", "error 403")):
+                raise RuntimeError(f"Gemini key problem - check it in Settings ({e})")
+            log(f"   [gemini] {e} - trying another model")
+    raise RuntimeError("all Gemini models are busy right now")
 
 
 def ask_ollama(system, messages):
@@ -416,7 +446,7 @@ def api_status():
     s = settings()
     ip = noob_devices.local_ip()
     return jsonify(version=VERSION, ip=ip, server_url=f"http://{ip}:{PORT}/ask", whisper=WHISPER_SIZE,
-                   gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=GEMINI_MODEL,
+                   gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=last_good_model,
                    facts=len(memory.all_facts()), messages=len(memory.recent_log(100000)),
                    profile_name=memory.get_profile().get("Name", ""), devices=len(s["devices"]),
                    languages=len(VOICES), time=now_text())
