@@ -263,3 +263,8 @@ textarea { resize: vertical; min-height: 70px; }
 .link-btn:hover { color: var(--text); }
 .noob-link-row { margin: 4px 0 6px; padding: 12px; border-radius: 12px; background: rgba(0, 0, 0, .2); }
 .grow-text { flex: 1; font-size: 13px; }
+/* ---------- NOOB app hand-off page ---------- */
+.handoff { width: min(420px, 100%); text-align: center; position: relative; z-index: 1; }
+.small-orb { width: 110px; height: 110px; margin: 6px auto 20px; }
+.handoff .field { text-align: left; }
+.handoff .wide-btn { display: flex; }

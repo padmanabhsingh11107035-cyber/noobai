@@ -248,45 +248,25 @@ Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group 
 
 ### Use NOOB from anywhere with your own domain (optional, free)
 
-Yes — NOOB works with a custom domain such as `noob.yourdomain.com`, using a free **Cloudflare Tunnel**.
-It gives the app a secure `https://` address (so voice works on phones too) without opening your router.
-The NOOB PC must be on and the server running.
+NOOB works with a custom domain such as `ai.nooob.xyz`, using a free **Cloudflare Tunnel**. It gives the app a
+secure `https://` address (so voice works on phones too) without opening your router. The NOOB PC must be on.
 
-1. Create your owner account first (on the PC). Then install the tunnel tool:
-   ```bash
-   winget install --id Cloudflare.cloudflared
-   ```
-2. **Quick test (no domain needed):** run the command below. It prints a free random
-   `https://…trycloudflare.com` address that works while the command is running.
-   ```bash
-   cloudflared tunnel --url http://localhost:5000
-   ```
-3. **Your own domain** (the domain must be on your free Cloudflare account):
-   ```bash
-   cloudflared tunnel login
-   ```
-   ```bash
-   cloudflared tunnel create noob
-   ```
-   ```bash
-   cloudflared tunnel route dns noob noob.yourdomain.com
-   ```
-   Then create `C:\Users\<you>\.cloudflared\config.yml`:
-   ```yaml
-   tunnel: noob
-   credentials-file: C:\Users\<you>\.cloudflared\<TUNNEL-ID>.json
-   ingress:
-     - hostname: noob.yourdomain.com
-       service: http://localhost:5000
-     - service: http_status:404
-   ```
-   and start it (keep it running):
-   ```bash
-   cloudflared tunnel run noob
-   ```
-4. Share `https://noob.yourdomain.com` and your invite code. Everyone signs in with their own account.
+1. Create your owner account first (on the PC). Your domain must be on your (free) Cloudflare account.
+2. Double-click **`server/Setup online access.bat`** and type the address you want (e.g. `ai.nooob.xyz`).
+   It downloads Cloudflare's `cloudflared` tool into `server/tools`, opens a browser once so you can log in to
+   Cloudflare and pick your domain, creates the tunnel and the web address, and saves `server/tunnel.yml`.
+3. Restart NOOB. From now on the NOOB server switches online access on and off by itself.
+   **Settings → Server → Online address** shows the address.
+4. Share the address and your invite code. Everyone signs in with their own account.
 
-The NOOB **device** still talks to the PC over your Wi-Fi; the domain is for the app.
+The NOOB **device** still talks to the PC over your Wi-Fi; the web address is for the app.
+
+### The "NOOB AI" button in the NOOB social media app
+
+In the NOOB social app (nooob.xyz), **Profile → ⋮ → NOOB AI** opens NOOB AI at `https://ai.nooob.xyz` in a new
+tab and signs you in automatically: the app hands over your NOOB login once (after `#` in the address, which is
+never sent to a server), NOOB AI checks it with NOOB and forgets it. New people still need the invite code the
+first time. If the NOOB PC is off, the page cannot open — try again when it is on.
 
 ---
 
@@ -365,10 +345,13 @@ noob-esp32-assistant/
     ├── noob_devices.py        ← "Connect to nearby devices" (UDP discovery + pairing)
     ├── noob_settings.py       ← settings file handling
     ├── noob_social.py         ← "Continue with NOOB" (sign in with a nooob.xyz account)
+    ├── noob_tunnel.py         ← optional online address (Cloudflare Tunnel)
+    ├── Setup online access.bat
     ├── requirements.txt
     └── web/                   ← the NOOB App (HTML, CSS, JavaScript)
         ├── index.html
         ├── login.html         ← sign in / create account
+        ├── noob-signin.html   ← automatic sign-in from the NOOB social app
         ├── style.css
         ├── app.js
         └── loading.html       ← start-up screen

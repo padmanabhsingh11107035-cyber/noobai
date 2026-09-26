@@ -68,3 +68,27 @@ def verify_login(identifier, password):
         raise NoobSocialError("This NOOB account has been suspended.")
     username = str(me.get("username") or "")
     return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user")}
+
+
+def verify_token(token):
+    """For the "NOOB AI" button inside the NOOB social media app: checks the login token the app handed over.
+    Returns {"id", "username", "name"}, otherwise raises NoobSocialError. The token is used once and never saved.
+    (No logout here: this token is the person's own NOOB app login.)"""
+    token = (token or "").strip()
+    if not token or len(token) > 4000:
+        raise NoobSocialError("Please sign in.")
+    try:
+        r = requests.get(f"{NOOB_SOCIAL_URL}/auth/v1/user", headers=_headers(token), timeout=TIMEOUT)
+        if r.status_code in (401, 403):
+            raise NoobSocialError("Your NOOB login has expired. Please sign in.")
+        if r.status_code != 200:
+            raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
+        user_id = r.json()["id"]
+        r = requests.post(f"{NOOB_SOCIAL_URL}/rest/v1/rpc/get_my_user", headers=_headers(token), json={}, timeout=TIMEOUT)
+        me = r.json() if r.status_code == 200 and isinstance(r.json(), dict) else {}
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        raise NoobSocialError("Could not reach NOOB right now. Check the internet and try again.")
+    if me.get("isSuspended"):
+        raise NoobSocialError("This NOOB account has been suspended.")
+    username = str(me.get("username") or "")
+    return {"id": user_id, "username": username, "name": str(me.get("displayName") or username or "NOOB user")}

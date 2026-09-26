@@ -39,6 +39,7 @@ from flask import Flask, Response, abort, g, jsonify, redirect, request, send_fr
 import noob_devices
 import noob_settings
 import noob_social
+import noob_tunnel
 from noob_memory import NoobMemory
 
 # ------------------------------ settings ------------------------------
@@ -562,6 +563,30 @@ def api_noob_login():
     noob, error = check_noob_login(data)
     if error:
         return error
+    return sign_in_noob_user(noob, data)
+
+
+@app.get("/noob-signin")
+def noob_signin_page():
+    """Where the "NOOB AI" button in the NOOB social media app lands (the login token is after '#')."""
+    return send_from_directory(app.static_folder, "noob-signin.html")
+
+
+@app.post("/api/auth/noob-token")
+def api_noob_token():
+    if too_many_tries():
+        return jsonify(ok=False, error="Too many tries. Wait 10 minutes and try again."), 429
+    data = body()
+    try:
+        noob = noob_social.verify_token(str(data.get("token", "")))
+    except noob_social.NoobSocialError as e:
+        failed_logins[request.remote_addr or "?"].append(time.time())
+        return jsonify(ok=False, error=str(e)), 400
+    return sign_in_noob_user(noob, data)
+
+
+def sign_in_noob_user(noob, data):
+    """Signs in the assistant account linked to this NOOB account (making one the first time)."""
     user_id = memory.user_for_noob(noob["id"])
     if not user_id:                                   # first time: make an assistant account for this NOOB user
         first = memory.user_count() == 0
@@ -682,7 +707,7 @@ def api_status():
                          "noob_username": g.user.get("noob_username") or ""},
                    profile_name=memory.get_profile(g.user["id"]).get("Name", "") or g.user["name"],
                    devices=len(devices), devices_online=sum(d["online"] for d in devices),
-                   languages=len(VOICES), time=now_text())
+                   languages=len(VOICES), time=now_text(), online_url=noob_tunnel.public_url())
 
 
 def answer_json(user_text, heard_lang="en"):
@@ -840,7 +865,7 @@ def api_log():
 @owner_only
 def api_shutdown():
     log("NOOB server stopped from the app.")
-    threading.Timer(0.5, lambda: os._exit(0)).start()
+    threading.Timer(0.5, stop_everything).start()
     return jsonify(ok=True)
 
 
@@ -911,8 +936,18 @@ def api_unpair(mac):
     return jsonify(ok=True)
 
 
+tunnel = None
+
+
+def stop_everything():
+    if tunnel and tunnel.poll() is None:
+        tunnel.terminate()                             # online access stops with the server
+    os._exit(0)
+
+
 if __name__ == "__main__":
     noob_devices.start_server_responder(PORT, log)
+    tunnel = noob_tunnel.start(log)
     log(f"NOOB server running. Open the NOOB App: http://localhost:{PORT}  "
         f"(other devices on this Wi-Fi: http://{noob_devices.local_ip()}:{PORT})")
     app.run(host="0.0.0.0", port=PORT, threaded=True)

@@ -508,7 +508,8 @@ loaders.settings = async () => {
   if (status) {
     $("brainStatus").textContent = status.gemini ? `Using Google Gemini (${status.gemini_model}) — free tier.`
       : "No Gemini key yet — NOOB uses the offline brain (Ollama) if it is installed.";
-    const info = [["Status", "Running"], ["Address for devices", status.server_url], ["Speech model", `Whisper ${status.whisper}`],
+    const info = [["Status", "Running"], ["Online address", status.online_url || "not set up (see README)"],
+      ["Address for devices", status.server_url], ["Speech model", `Whisper ${status.whisper}`],
       ["Voice languages", status.languages], ["Memories", status.facts], ["Messages", status.messages], ["Version", status.version]];
     $("serverInfo").replaceChildren(...info.flatMap(([k, v]) => [el("dt", "", k), el("dd", "", String(v))]));
   }
