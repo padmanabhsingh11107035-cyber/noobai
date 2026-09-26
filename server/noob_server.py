@@ -409,6 +409,15 @@ def no_caching_of_personal_data(response):
     return response
 
 
+def page(name):
+    """Serves an app page with version tags on its files, so browsers and Cloudflare never use an old copy."""
+    html = open(os.path.join(app.static_folder, name), encoding="utf-8").read()
+    for asset in ("style.css", "app.js"):
+        version = int(os.path.getmtime(os.path.join(app.static_folder, asset)))
+        html = html.replace(f"/static/{asset}\"", f"/static/{asset}?v={version}\"")
+    return Response(html, mimetype="text/html")
+
+
 def current_user():
     uid = session.get("uid")
     return memory.get_user(uid) if uid else None
@@ -463,7 +472,7 @@ def home():
 def login_page():
     if current_user():
         return redirect("/app")
-    return send_from_directory(app.static_folder, "login.html")
+    return page("login.html")
 
 
 @app.get("/api/auth/state")
@@ -577,7 +586,7 @@ def api_noob_login():
 @app.get("/noob-signin")
 def noob_signin_page():
     """Where the "NOOB AI" button in the NOOB social media app lands (the login token is after '#')."""
-    return send_from_directory(app.static_folder, "noob-signin.html")
+    return page("noob-signin.html")
 
 
 @app.post("/api/auth/noob-token")
@@ -700,7 +709,7 @@ def my_devices():
 @app.get("/app")
 @signed_in
 def web_app():
-    return send_from_directory(app.static_folder, "index.html")
+    return page("index.html")
 
 
 @app.get("/api/status")
