@@ -13,6 +13,7 @@ DEFAULTS = {
     "gemini_api_key": "",
     "secret_key": "",        # signs login cookies (created automatically)
     "invite_code": "",       # new accounts need this code (shown to the owner in Settings)
+    "open_to_noob_users": True,   # people who sign in with a NOOB social account don't need the invite code
     "devices": [],           # paired NOOB devices: [{"name", "mac", "ip", "key", "user_id", "paired_at"}]
 }
 

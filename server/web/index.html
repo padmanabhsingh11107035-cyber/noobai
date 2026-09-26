@@ -139,7 +139,11 @@
     <div class="grid2">
       <div class="card owner-only">
         <h2>People</h2>
-        <p class="muted">Family and friends can create their own NOOB account with this invite code. Everyone gets their own memory, About Me and devices.</p>
+        <label class="switch-row open-row">
+          <span class="switch"><input type="checkbox" id="openToNoob"><span class="slider"></span></span>
+          <span><b>Open to everyone with a NOOB account</b><br><small class="muted">They sign in with “Continue with NOOB” or the NOOB AI button — no invite code needed</small></span>
+        </label>
+        <p class="muted">Anyone else needs this invite code to create an account. Everyone gets their own private memory, chats, About Me and devices.</p>
         <div class="invite" id="inviteCode">····-····</div>
         <div class="row"><button class="btn ghost" id="copyInvite">Copy code</button><button class="btn ghost" id="newInvite">New code</button></div>
         <h3 class="section-title">Accounts</h3>

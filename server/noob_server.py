@@ -401,6 +401,14 @@ DEVICE_SEEN = {}                                        # device MAC -> last tim
 ONLINE_SECONDS = 70
 
 
+@app.after_request
+def no_caching_of_personal_data(response):
+    if request.path.startswith(("/api/", "/app", "/login", "/noob-signin", "/ask", "/device/")):
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Vary"] = "Cookie"
+    return response
+
+
 def current_user():
     uid = session.get("uid")
     return memory.get_user(uid) if uid else None
@@ -574,6 +582,7 @@ def noob_signin_page():
 
 @app.post("/api/auth/noob-token")
 def api_noob_token():
+    session.clear()                                   # never continue in someone else's session on a shared device
     if too_many_tries():
         return jsonify(ok=False, error="Too many tries. Wait 10 minutes and try again."), 429
     data = body()
@@ -592,7 +601,7 @@ def sign_in_noob_user(noob, data):
         first = memory.user_count() == 0
         if first and not on_this_pc():
             return jsonify(ok=False, error="Create the owner account on the NOOB PC first."), 403
-        if not first:
+        if not first and not settings()["open_to_noob_users"]:
             invite = str(data.get("invite", "")).strip().upper()
             if invite != settings()["invite_code"].upper():
                 return jsonify(ok=False, needs_invite=True,
@@ -818,7 +827,7 @@ def api_settings_get():
     s = settings()
     key = s["gemini_api_key"]
     return jsonify(gemini_key_set=bool(key), gemini_key_hint=("••••" + key[-4:]) if key else "",
-                   invite_code=s["invite_code"], users=memory.all_users())
+                   invite_code=s["invite_code"], open_to_noob_users=s["open_to_noob_users"], users=memory.all_users())
 
 
 @app.put("/api/settings")
@@ -829,6 +838,8 @@ def api_settings_put():
         s = noob_settings.load()
         if "gemini_api_key" in data:
             s["gemini_api_key"] = str(data["gemini_api_key"]).strip()
+        if "open_to_noob_users" in data:
+            s["open_to_noob_users"] = bool(data["open_to_noob_users"])
         noob_settings.save(s)
     return jsonify(ok=True)
 

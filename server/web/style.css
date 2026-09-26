@@ -268,3 +268,9 @@ textarea { resize: vertical; min-height: 70px; }
 .small-orb { width: 110px; height: 110px; margin: 6px auto 20px; }
 .handoff .field { text-align: left; }
 .handoff .wide-btn { display: flex; }
+
+/* ---------- speaking + play button ---------- */
+.orb.speaking .orb-core { animation: talk .45s ease-in-out infinite alternate; }
+@keyframes talk { from { transform: scale(1); } to { transform: scale(1.07); } }
+.play-voice { margin-top: 8px; }
+.open-row { margin: 4px 0 14px; }

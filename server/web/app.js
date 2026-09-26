@@ -17,7 +17,15 @@ async function api(path, options = {}) {
     opts.headers["Content-Type"] = "application/json";
     delete opts.json;
   }
-  const res = await fetch(path, opts);
+  let timer = 0;
+  if (opts.timeout) {
+    const controller = new AbortController();
+    opts.signal = controller.signal;
+    timer = setTimeout(() => controller.abort(), opts.timeout);
+    delete opts.timeout;
+  }
+  let res;
+  try { res = await fetch(path, opts); } finally { clearTimeout(timer); }
   if (res.status === 401) { location.href = "/login"; throw new Error("Please sign in"); }
   if (!res.ok) {
     let message = `Server error ${res.status}`;
@@ -117,7 +125,29 @@ setInterval(refreshStatus, 5000);
 // ---------------------------------------------------------------- TALK
 const orb = $("orb");
 let state = "idle";                 // idle / listening / thinking / speaking
-let audioCtx = null, recorder = null, micStream = null, currentAudio = null, rafId = 0;
+let audioCtx = null, recorder = null, rafId = 0;
+
+// One audio player for NOOB's voice. Phones (iPhone especially) only play sound that starts from a tap,
+// so the first tap "unlocks" this player with a moment of silence, and every answer reuses it.
+const player = new Audio();
+player.setAttribute("playsinline", "");
+let playerUnlocked = false, stopPlayback = null;
+const SILENCE = (() => {
+  const n = 1600, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+})();
+
+function unlockAudio() {                     // call from every tap
+  if (audioCtx && audioCtx.state !== "running") audioCtx.resume().catch(() => {});
+  if (playerUnlocked) return;
+  playerUnlocked = true;
+  player.src = SILENCE;
+  player.play().catch(() => { playerUnlocked = false; });
+}
 
 function setState(next, text) {
   state = next;
@@ -143,61 +173,64 @@ function typingBubble() {
   return b;
 }
 
-function ensureAudio() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === "suspended") audioCtx.resume();
-  return audioCtx;
-}
-
 async function startListening() {
   if (state !== "idle") return;
-  if (!window.isSecureContext || !navigator.mediaDevices) {
-    toast("Voice works on the NOOB PC or on an https:// address. Here you can type your message.", true);
+  if (!window.isSecureContext || !navigator.mediaDevices || !window.MediaRecorder) {
+    toast("Voice needs a secure (https://) page and a modern browser. You can type your message instead.", true);
     return;
   }
+  let micStream;
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   } catch {
-    toast("Microphone blocked. Allow the microphone for this app and try again.", true);
+    toast("Microphone blocked. Allow the microphone for this site and try again.", true);
     return;
   }
-  const ctx = ensureAudio();
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 1024;
-  ctx.createMediaStreamSource(micStream).connect(analyser);
-  const type = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t));
+  // The level meter (for "stop when you stop talking") is a bonus: if the phone does not allow it,
+  // recording still works and you tap to stop.
+  let analyser = null;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state !== "running") await audioCtx.resume().catch(() => {});
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    audioCtx.createMediaStreamSource(micStream).connect(analyser);
+  } catch { analyser = null; }
+
+  const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"]
+    .find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
   const rec = new MediaRecorder(micStream, type ? { mimeType: type } : undefined);
-  const stream = micStream;
   recorder = rec;
   const chunks = [];
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.ondataavailable = (e) => e.data && e.data.size && chunks.push(e.data);
   rec.onstop = () => {
     cancelAnimationFrame(rafId);
-    stream.getTracks().forEach((t) => t.stop());
+    micStream.getTracks().forEach((t) => t.stop());
     if (rec.cancelled) { setState("idle"); return; }
-    sendVoice(new Blob(chunks, { type: rec.mimeType }));
+    sendVoice(new Blob(chunks, { type: rec.mimeType || type || "audio/webm" }));
   };
   rec.start();
   setState("listening");
 
-  // Stop automatically when you stop talking (like a smart speaker).
-  const samples = new Float32Array(analyser.fftSize);
+  const samples = analyser ? new Float32Array(analyser.fftSize) : null;
   const started = performance.now();
   let noise = 0.01, heardSpeech = false, lastLoud = started;
   const tick = () => {
-    analyser.getFloatTimeDomainData(samples);
-    let sum = 0;
-    for (const s of samples) sum += s * s;
-    const level = Math.sqrt(sum / samples.length);
-    const now = performance.now();
-    if (now - started < 350) noise = Math.max(noise, level);           // measure room noise first
-    const threshold = Math.max(0.02, noise * 2.2);
-    if (level > threshold) { heardSpeech = true; lastLoud = now; }
-    orb.style.setProperty("--level", Math.min(1, level * 6).toFixed(3));
-    const silentFor = now - lastLoud, total = now - started;
-    if ((heardSpeech && silentFor > 1300) || total > 15000) return stopListening();
-    if (!heardSpeech && total > 7000) { recorder.cancelled = true; toast("I didn't hear anything."); return stopListening(); }
+    const now = performance.now(), total = now - started;
+    const metering = analyser && audioCtx.state === "running";
+    if (metering) {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const s of samples) sum += s * s;
+      const level = Math.sqrt(sum / samples.length);
+      if (total < 350) noise = Math.max(noise, level);              // measure room noise first
+      if (level > Math.max(0.02, noise * 2.2)) { heardSpeech = true; lastLoud = now; }
+      orb.style.setProperty("--level", Math.min(1, level * 6).toFixed(3));
+      if (heardSpeech && now - lastLoud > 1300) return stopListening();          // you stopped talking
+      if (!heardSpeech && total > 8000) { rec.cancelled = true; toast("I didn't hear anything."); return stopListening(); }
+    }
+    if (total > 20000) return stopListening();                                    // never record forever
     rafId = requestAnimationFrame(tick);
   };
   rafId = requestAnimationFrame(tick);
@@ -211,13 +244,13 @@ async function sendVoice(blob) {
   setState("thinking");
   const typing = typingBubble();
   try {
-    const r = await api("/api/voice", { method: "POST", body: blob, headers: { "Content-Type": blob.type } });
+    const r = await api("/api/voice", { method: "POST", body: blob, headers: { "Content-Type": blob.type }, timeout: 120000 });
     typing.remove();
     if (r.you) addBubble("you", r.you);
     await showAnswer(r);
   } catch (e) {
     typing.remove();
-    addBubble("noob", "Could not reach the NOOB server.", "error");
+    addBubble("noob", e.name === "AbortError" ? "NOOB took too long to answer. Please try again." : "Could not reach NOOB AI. Please try again.", "error");
     setState("idle");
   }
 }
@@ -229,72 +262,73 @@ async function sendText(text) {
   setState("thinking");
   const typing = typingBubble();
   try {
-    const r = await api("/api/chat", { method: "POST", json: { text } });
+    const r = await api("/api/chat", { method: "POST", json: { text }, timeout: 120000 });
     typing.remove();
     await showAnswer(r, false);
-  } catch {
+  } catch (e) {
     typing.remove();
-    addBubble("noob", "Could not reach the NOOB server.", "error");
+    addBubble("noob", e.name === "AbortError" ? "NOOB took too long to answer. Please try again." : "Could not reach NOOB AI. Please try again.", "error");
     setState("idle");
   }
 }
 
 async function showAnswer(r, fromVoice = true) {
-  addBubble("noob", r.answer, r.ok ? "" : "error");
+  const bubble = addBubble("noob", r.answer, r.ok ? "" : "error");
+  let played = false;
   try {
-    const wav = await api("/api/speak", { method: "POST", json: { text: r.answer, lang: r.lang } });
-    await playVoice(wav);
+    setState("thinking", "Getting my voice ready…");
+    const wav = await api("/api/speak", { method: "POST", json: { text: r.answer, lang: r.lang }, timeout: 45000 });
+    played = await playVoice(wav, bubble);
   } catch {
-    toast("Could not play NOOB's voice (internet needed for the voice).", true);
+    toast("NOOB's voice is not available right now — you can still read the answer.", true);
   }
   setState("idle");
-  if (fromVoice && r.ok && $("convMode").checked) setTimeout(startListening, 350);   // keep talking
+  if (played && fromVoice && r.ok && $("convMode").checked) setTimeout(startListening, 400);   // keep talking
 }
 
-function playVoice(blob) {
+// Plays NOOB's voice. Resolves true if it played, false if the phone blocked it (then a "Play" button is shown).
+function playVoice(blob, bubble) {
   return new Promise((resolve) => {
-    const ctx = ensureAudio();
-    const audio = new Audio(URL.createObjectURL(blob));
-    currentAudio = audio;
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    ctx.createMediaElementSource(audio).connect(analyser);
-    analyser.connect(ctx.destination);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
-      orb.style.setProperty("--level", Math.min(1, avg * 2.2).toFixed(3));
-      rafId = requestAnimationFrame(tick);
+    const url = URL.createObjectURL(blob);
+    let done = false, guard = 0;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      clearTimeout(guard);
+      player.onended = player.onerror = null;
+      stopPlayback = null;
+      resolve(ok);
     };
-    let finished = false;
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      cancelAnimationFrame(rafId);
-      URL.revokeObjectURL(audio.src);
-      currentAudio = null;
-      resolve();
-    };
-    audio.onended = finish;
-    audio.onerror = finish;
-    audio.onpause = finish;
+    stopPlayback = () => { player.pause(); finish(true); };
+    player.onended = () => finish(true);
+    player.onerror = () => finish(false);
+    player.src = url;
     setState("speaking");
-    audio.play().then(() => { rafId = requestAnimationFrame(tick); }).catch(finish);
+    player.play().then(() => {
+      // safety net: never get stuck on "Speaking"
+      const seconds = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 60;
+      guard = setTimeout(() => finish(true), seconds * 1000 + 3000);
+    }).catch(() => {
+      const play = el("button", "chip play-voice", "🔊 Play NOOB's voice");
+      play.onclick = () => { player.src = url; player.play().catch(() => {}); };
+      bubble.append(el("br"), play);
+      finish(false);
+    });
   });
 }
 
 function stopSpeaking() {
-  if (currentAudio) currentAudio.pause();
+  if (stopPlayback) stopPlayback();
 }
 
 $("orbBtn").onclick = () => {
+  unlockAudio();
   if (state === "idle") startListening();
   else if (state === "listening") stopListening();
   else if (state === "speaking") { $("convMode").checked = false; stopSpeaking(); }
 };
-$("composer").onsubmit = (e) => { e.preventDefault(); const t = $("typeBox").value; $("typeBox").value = ""; sendText(t); };
-document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => sendText(c.textContent)));
+$("composer").onsubmit = (e) => { e.preventDefault(); unlockAudio(); const t = $("typeBox").value; $("typeBox").value = ""; sendText(t); };
+document.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { unlockAudio(); sendText(c.textContent); }));
 document.addEventListener("keydown", (e) => {        // Space bar = talk (when not typing)
   if (e.code === "Space" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName) && location.hash.match(/^(#talk)?$/)) {
     e.preventDefault();
@@ -504,6 +538,7 @@ loaders.settings = async () => {
   $("geminiKey").value = "";
   $("geminiKey").placeholder = s.gemini_key_set ? `Saved (${s.gemini_key_hint}) — paste a new key to replace` : "Paste your key";
   $("inviteCode").textContent = s.invite_code;
+  $("openToNoob").checked = s.open_to_noob_users;
   renderUsers(s.users);
   if (status) {
     $("brainStatus").textContent = status.gemini ? `Using Google Gemini (${status.gemini_model}) — free tier.`
@@ -545,6 +580,10 @@ function renderUsers(users) {
     return item;
   }));
 }
+$("openToNoob").onchange = async () => {
+  await api("/api/settings", { method: "PUT", json: { open_to_noob_users: $("openToNoob").checked } });
+  toast($("openToNoob").checked ? "Everyone with a NOOB account can use NOOB AI" : "New people now need the invite code");
+};
 $("copyInvite").onclick = () => navigator.clipboard.writeText($("inviteCode").textContent).then(() => toast("Invite code copied"));
 $("newInvite").onclick = async () => {
   if (await modal({ title: "Make a new invite code?", text: "The old code stops working. People who already have accounts are not affected.", ok: "New code" })) {

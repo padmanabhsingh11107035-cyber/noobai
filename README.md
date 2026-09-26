@@ -242,8 +242,11 @@ Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group 
 - On the sign-in page, click **Continue with NOOB** and enter your NOOB (nooob.xyz) username or email and
   password. The assistant checks them with NOOB's own login service, reads only your username and display name,
   and ends that login straight away — **your NOOB password is never saved**. Suspended NOOB accounts are refused.
-- The first time, NOOB creates an assistant account for you (new people still need the owner's invite code).
-  After that, **Continue with NOOB** signs you straight in.
+- The first time, NOOB creates an assistant account for you. By default **anyone with a NOOB account can join
+  without an invite code** (the owner can switch this off in Settings → People). After that, **Continue with NOOB**
+  signs you straight in.
+- Every person has their own private memory, chats, About Me and devices. Nobody can see anyone else's data,
+  also not on a shared phone: a new NOOB AI sign-in always signs the previous person out first.
 - Already have an assistant account? **Settings → My account → Link NOOB account**, then you can use either way.
 
 ### Use NOOB from anywhere with your own domain (optional, free)
@@ -265,8 +268,11 @@ The NOOB **device** still talks to the PC over your Wi-Fi; the web address is fo
 
 In the NOOB social app (nooob.xyz), **Profile → ⋮ → NOOB AI** opens NOOB AI at `https://ai.nooob.xyz` in a new
 tab and signs you in automatically: the app hands over your NOOB login once (after `#` in the address, which is
-never sent to a server), NOOB AI checks it with NOOB and forgets it. New people still need the invite code the
-first time. If the NOOB PC is off, the page cannot open — try again when it is on.
+never sent to a server), NOOB AI checks it with NOOB and forgets it. It works on any phone, tablet or computer.
+If the NOOB PC is off, the page cannot open — try again when it is on.
+
+On phones, sound is only allowed after a tap: NOOB unlocks its voice on your first tap. If a phone still blocks it,
+the answer shows a **🔊 Play NOOB's voice** button.
 
 ---
 
