@@ -5,6 +5,10 @@ server/noob_settings.json
 server/noob_settings.json.tmp
 server/noob_server.log
 
+# Downloaded / installed automatically
+server/models/
+server/.venv/
+
 # Python
 __pycache__/
 *.pyc

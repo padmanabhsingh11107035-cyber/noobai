@@ -121,7 +121,8 @@ app = Flask(__name__, static_folder=os.path.join(HERE, "web"), static_url_path="
 logging.getLogger("werkzeug").setLevel(logging.WARNING)       # keep the log readable
 
 log(f"Loading Whisper '{WHISPER_SIZE}' speech model (the first start downloads it)...")
-whisper = WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8")
+whisper = WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8",
+                       download_root=os.path.join(HERE, "models"))      # kept inside the NOOB folder
 memory = NoobMemory(MEMORY_FILE)
 settings_lock = threading.Lock()
 

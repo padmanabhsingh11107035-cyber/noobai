@@ -142,17 +142,17 @@ The full diagram is in [`docs/circuit_diagram.svg`](docs/circuit_diagram.svg) (o
 ### 5.1 NOOB server + NOOB App (on your Windows PC)
 
 1. Install **Python 3.12 or newer** from python.org (tick *"Add Python to PATH"*). Tested with Python 3.14.
-2. Open a terminal in the `server` folder and install the libraries:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Double-click **`server/NOOB App.bat`**.
+2. Get the project: on GitHub click **Code → Download ZIP** and unzip it (or `git clone` it)
+   onto a drive with **at least 2 GB free**.
+3. Double-click **`server/Setup NOOB.bat`** (one time). It installs everything NOOB needs **inside the
+   `server` folder** (about 300 MB, 5–15 minutes).
+4. Double-click **`server/NOOB App.bat`**.
    It starts the NOOB server in the background and opens the NOOB App in its own window.
-   The first start downloads the speech model (~480 MB), so it takes a few minutes once.
+   The first start downloads the speech model (~480 MB, also kept inside the `server` folder).
    Allow Python through the Windows firewall (*Private networks*) and allow the microphone when asked.
-4. In the app, open **Settings** and paste a **free Gemini API key**: go to **aistudio.google.com**,
+5. In the app, open **Settings** and paste a **free Gemini API key**: go to **aistudio.google.com**,
    sign in with a Google account, click **Get API key → Create API key** (no credit card needed).
-5. *(Optional, offline backup)* Install **Ollama** from **ollama.com**, then run `ollama pull gemma3:4b`.
+6. *(Optional, offline backup)* Install **Ollama** from **ollama.com**, then run `ollama pull gemma3:4b`.
    If Gemini is unavailable (no internet or daily limit), NOOB uses this local AI automatically (slower).
 
 You can now talk to NOOB in the app, even before the hardware is built.
@@ -258,7 +258,7 @@ NOOB is an **information** assistant, not a doctor. Its instructions make it:
 | App says **NOOB server is not running** | Double-click `NOOB App.bat`. If it still fails, read `server/noob_server.log`. |
 | App microphone does not work | Allow the microphone for the NOOB App window (click the lock icon in the address bar). |
 | NOOB says it heard nothing (device) | Speak closer; raise mic gain: `MIC_GAIN_SHIFT` 12 → 11. Check mic wiring (L/R to GND). |
-| NOOB can't reach its brain | Check the internet and the Gemini key in Settings, or install the offline brain (5.1 step 5). |
+| NOOB can't reach its brain | Check the internet and the Gemini key in Settings, or install the offline brain (5.1 step 6). |
 | Sound too loud / distorted / board resets | Lower `VOLUME_PERCENT`, check capacitor C1, use a 2 A supply. |
 | No sound | Check DIN/BCLK/LRC wiring and speaker wires; amplifier VIN must be on 5V. |
 | Upload fails | Hold **BOOT**, press **RST**, release BOOT, then upload again. Use a data (not charge-only) cable. |
@@ -276,6 +276,7 @@ noob-esp32-assistant/
 ├── noob_esp32/
 │   └── noob_esp32.ino         ← NOOB device firmware (C++ / Arduino)
 └── server/
+    ├── Setup NOOB.bat         ← one-time setup (installs everything inside this folder)
     ├── NOOB App.bat           ← double-click to open the NOOB App
     ├── start_noob.bat         ← runs the server in a visible window (to see errors)
     ├── noob_launcher.py       ← starts the server and opens the app window
