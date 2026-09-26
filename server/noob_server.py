@@ -141,9 +141,28 @@ def log(message):
 app = Flask(__name__, static_folder=os.path.join(HERE, "web"), static_url_path="/static")
 logging.getLogger("werkzeug").setLevel(logging.WARNING)       # keep the log readable
 
-log(f"Loading Whisper '{WHISPER_SIZE}' speech model (the first start downloads it)...")
-whisper = WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8",
-                       download_root=os.path.join(HERE, "models"))      # kept inside the NOOB folder
+# The offline speech backup (Whisper) loads in the background, from the files on disk when they are there,
+# so NOOB starts in seconds even on a slow connection (voice normally goes straight to Gemini).
+whisper = None
+whisper_ready = threading.Event()
+
+
+def load_whisper():
+    global whisper
+    folder = os.path.join(HERE, "models")                 # kept inside the NOOB folder
+    try:
+        whisper = WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8", download_root=folder,
+                               local_files_only=True)
+    except Exception:
+        log(f"Downloading the Whisper '{WHISPER_SIZE}' speech model (first start only)...")
+        try:
+            whisper = WhisperModel(WHISPER_SIZE, device="cpu", compute_type="int8", download_root=folder)
+        except Exception as e:
+            log(f"!! Offline speech backup not available: {e}")
+    whisper_ready.set()
+
+
+threading.Thread(target=load_whisper, daemon=True).start()
 memory = NoobMemory(MEMORY_FILE)
 settings_lock = threading.Lock()
 
@@ -178,6 +197,9 @@ log(f"{len(VOICES)} speech languages ready. Accounts: {memory.user_count()}.")
 
 # ------------------------------ step 1: speech -> text ------------------------------
 def speech_to_text(pcm_bytes):
+    """Offline backup only: turns speech into text on this PC with Whisper."""
+    if not whisper_ready.wait(timeout=120) or whisper is None:
+        return "", "en"
     audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
     peak = float(np.abs(audio).max()) if audio.size else 0.0
     if peak > 0.001:                                   # auto volume: quiet voices become clear
