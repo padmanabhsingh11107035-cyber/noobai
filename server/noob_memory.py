@@ -6,7 +6,8 @@ It is free, needs no internet account, keeps private health information on your 
 computer, and survives when NOOB or the PC is switched off.
 
 Tables:
-  users         - NOOB App accounts (passwords are stored only as secure hashes)
+  users         - NOOB App accounts (passwords are stored only as secure hashes; an account can be
+                  linked to a NOOB social media account for "Continue with NOOB")
   profile       - each user's "About Me" details (name, age, allergies, ...)
   facts         - important things each user told NOOB ("Asha is allergic to penicillin")
   conversation  - every question and answer, so NOOB can continue where it left off
@@ -61,6 +62,10 @@ class NoobMemory:
                 user_id INTEGER NOT NULL DEFAULT 1
             );
         """)
+        if "noob_id" not in self._columns("users"):          # "Continue with NOOB" link
+            self.db.execute("ALTER TABLE users ADD COLUMN noob_id TEXT")
+            self.db.execute("ALTER TABLE users ADD COLUMN noob_username TEXT")
+        self.db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_noob_id ON users (noob_id) WHERE noob_id IS NOT NULL")
         self.db.commit()
 
     # ---------------- upgrade from the single-user version (keeps all data for the first account)
@@ -96,6 +101,10 @@ class NoobMemory:
         with self.lock:
             return self.db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
+    def username_free(self, username):
+        with self.lock:
+            return not self.db.execute("SELECT 1 FROM users WHERE username = ?", (username.lower(),)).fetchone()
+
     def create_user(self, username, name, password):
         """Returns the new user's id, or None if the username is taken.
         The first account becomes the owner and keeps the memory saved before accounts existed."""
@@ -119,16 +128,32 @@ class NoobMemory:
             return row[0]
         return None
 
+    USER_FIELDS = ("id", "username", "name", "is_owner", "created_at", "noob_username")
+
     def get_user(self, user_id):
         with self.lock:
-            row = self.db.execute("SELECT id, username, name, is_owner, created_at FROM users WHERE id = ?",
-                                  (user_id,)).fetchone()
-        return dict(zip(("id", "username", "name", "is_owner", "created_at"), row)) if row else None
+            row = self.db.execute(f"SELECT {', '.join(self.USER_FIELDS)} FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(zip(self.USER_FIELDS, row)) if row else None
 
     def all_users(self):
         with self.lock:
-            rows = self.db.execute("SELECT id, username, name, is_owner, created_at FROM users ORDER BY id").fetchall()
-        return [dict(zip(("id", "username", "name", "is_owner", "created_at"), r)) for r in rows]
+            rows = self.db.execute(f"SELECT {', '.join(self.USER_FIELDS)} FROM users ORDER BY id").fetchall()
+        return [dict(zip(self.USER_FIELDS, r)) for r in rows]
+
+    # ---------------- "Continue with NOOB" ----------------
+    def user_for_noob(self, noob_id):
+        with self.lock:
+            row = self.db.execute("SELECT id FROM users WHERE noob_id = ?", (noob_id,)).fetchone()
+        return row[0] if row else None
+
+    def link_noob(self, user_id, noob_id, noob_username):
+        """Links a NOOB social account. Returns False if it is already linked to another account."""
+        with self.lock, self.db:
+            other = self.db.execute("SELECT id FROM users WHERE noob_id = ?", (noob_id,)).fetchone()
+            if other and other[0] != user_id:
+                return False
+            self.db.execute("UPDATE users SET noob_id = ?, noob_username = ? WHERE id = ?", (noob_id, noob_username, user_id))
+            return True
 
     def change_password(self, user_id, password):
         with self.lock, self.db:

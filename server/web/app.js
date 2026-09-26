@@ -496,6 +496,9 @@ loaders.settings = async () => {
   if (!status) return;
   $("accountInfo").replaceChildren(...[["Name", status.user.name], ["Username", status.user.username],
     ["Role", status.user.is_owner ? "Owner" : "Member"]].flatMap(([k, v]) => [el("dt", "", k), el("dd", "", v)]));
+  const linked = status.user.noob_username;
+  $("noobLinkText").textContent = linked ? `NOOB account: @${linked} — you can use “Continue with NOOB”` : "NOOB account: not linked";
+  $("linkNoob").hidden = Boolean(linked);
   if (!status.user.is_owner) return;
   const s = await api("/api/settings");
   $("geminiKey").value = "";
@@ -553,6 +556,19 @@ $("changePw").onclick = async () => {
     await api("/api/auth/password", { method: "POST", json: { old: $("oldPw").value, new: $("newPw").value } });
     $("oldPw").value = $("newPw").value = "";
     toast("Password changed");
+  } catch (e) { toast(e.message, true); }
+};
+$("linkNoob").onclick = async () => {
+  const box = el("div");
+  const id = el("input"); id.placeholder = "NOOB username or email"; id.autocomplete = "username";
+  const pw = el("input"); pw.type = "password"; pw.placeholder = "NOOB password"; pw.autocomplete = "current-password";
+  pw.style.marginTop = "10px";
+  box.append(id, pw, el("p", "muted small", "🔒 Your NOOB password is only checked with NOOB and is never saved here."));
+  if (!(await modal({ title: "Link your NOOB account", text: "Then you can sign in here with “Continue with NOOB”.", body: box, ok: "Link" }))) return;
+  try {
+    const r = await api("/api/auth/noob/link", { method: "POST", json: { identifier: id.value.trim(), password: pw.value } });
+    toast(`Linked to @${r.noob_username}`);
+    loaders.settings();
   } catch (e) { toast(e.message, true); }
 };
 async function signOut() {

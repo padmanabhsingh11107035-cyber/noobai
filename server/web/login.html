@@ -17,6 +17,9 @@
   </div>
 
   <div class="card auth-card">
+    <div id="mainPanel">
+    <button class="btn noob-btn wide-btn" id="noobBtn" type="button"><span class="noob-mark">N</span>Continue with NOOB</button>
+    <div class="or-line"><span>or use a NOOB Assistant account</span></div>
     <div class="auth-tabs" id="tabs">
       <button class="active" data-tab="signin">Sign in</button>
       <button data-tab="signup">Create account</button>
@@ -36,6 +39,22 @@
         <input id="invite" maxlength="9" placeholder="XXXX-XXXX" autocapitalize="characters"></label>
       <p class="auth-error" id="error" hidden></p>
       <button class="btn primary wide-btn" id="submit" type="submit">Sign in</button>
+    </form>
+    </div>
+
+    <form id="noobForm" hidden autocomplete="on">
+      <div class="noob-head"><span class="noob-mark big">N</span><div><h2>Sign in with NOOB</h2>
+        <p class="muted small">Use your NOOB (nooob.xyz) account.</p></div></div>
+      <label class="field"><span>NOOB username or email</span>
+        <input id="noobId" autocomplete="username" maxlength="120" required></label>
+      <label class="field"><span>NOOB password</span>
+        <input id="noobPw" type="password" autocomplete="current-password" required></label>
+      <label class="field" id="noobInviteField" hidden><span>Invite code <small class="muted">(ask the owner of this NOOB)</small></span>
+        <input id="noobInvite" maxlength="9" placeholder="XXXX-XXXX" autocapitalize="characters"></label>
+      <p class="auth-error" id="noobError" hidden></p>
+      <button class="btn noob-btn wide-btn" id="noobSubmit" type="submit">Continue</button>
+      <p class="muted small center-text">🔒 Your NOOB password is only checked with NOOB and is never saved here.</p>
+      <button class="link-btn" id="noobBack" type="button">← Back</button>
     </form>
   </div>
 </div>
@@ -79,6 +98,30 @@
       fail("Cannot reach the NOOB server.");
     }
     $("submit").disabled = false;
+  };
+
+  // ---- Continue with NOOB
+  $("noobBtn").onclick = () => { $("mainPanel").hidden = true; $("noobForm").hidden = false; $("noobId").focus(); };
+  $("noobBack").onclick = () => { $("noobForm").hidden = true; $("mainPanel").hidden = false; };
+  $("noobForm").onsubmit = async (e) => {
+    e.preventDefault();
+    $("noobSubmit").disabled = true;
+    $("noobSubmit").textContent = "Checking with NOOB…";
+    $("noobError").hidden = true;
+    try {
+      const r = await fetch("/api/auth/noob", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: $("noobId").value.trim(), password: $("noobPw").value, invite: $("noobInvite").value.trim() }) });
+      const data = await r.json();
+      if (data.ok) { location.href = "/app"; return; }
+      if (data.needs_invite) $("noobInviteField").hidden = false;
+      $("noobError").textContent = data.error || "Something went wrong.";
+      $("noobError").hidden = false;
+    } catch {
+      $("noobError").textContent = "Cannot reach the NOOB server.";
+      $("noobError").hidden = false;
+    }
+    $("noobSubmit").disabled = false;
+    $("noobSubmit").textContent = "Continue";
   };
 
   fetch("/api/auth/state").then((r) => r.json()).then((s) => {

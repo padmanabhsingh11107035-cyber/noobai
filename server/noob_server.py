@@ -38,6 +38,7 @@ from flask import Flask, Response, abort, g, jsonify, redirect, request, send_fr
 
 import noob_devices
 import noob_settings
+import noob_social
 from noob_memory import NoobMemory
 
 # ------------------------------ settings ------------------------------
@@ -526,6 +527,74 @@ def api_change_password():
     return jsonify(ok=True)
 
 
+# ------------------------------ "Continue with NOOB" (NOOB social media account) ------------------------------
+def too_many_tries():
+    ip = request.remote_addr or "?"
+    now = time.time()
+    failed_logins[ip] = [t for t in failed_logins[ip] if now - t < 600]
+    return len(failed_logins[ip]) >= 8
+
+
+def check_noob_login(data):
+    """Returns the NOOB account, or a JSON error response."""
+    if too_many_tries():
+        return None, (jsonify(ok=False, error="Too many wrong tries. Wait 10 minutes and try again."), 429)
+    try:
+        return noob_social.verify_login(str(data.get("identifier", "")), str(data.get("password", ""))), None
+    except noob_social.NoobSocialError as e:
+        if str(e).startswith("Wrong"):
+            failed_logins[request.remote_addr or "?"].append(time.time())
+        return None, (jsonify(ok=False, error=str(e)), 400)     # 400, not 401: the app session is still fine
+
+
+def free_username(noob_username):
+    base = re.sub(r"[^a-z0-9_.-]", "", noob_username.lower())[:26] or "noob"
+    base = base if len(base) >= 3 else base + "user"
+    name, n = base, 2
+    while not memory.username_free(name):
+        name, n = f"{base}-{n}", n + 1
+    return name
+
+
+@app.post("/api/auth/noob")
+def api_noob_login():
+    data = body()
+    noob, error = check_noob_login(data)
+    if error:
+        return error
+    user_id = memory.user_for_noob(noob["id"])
+    if not user_id:                                   # first time: make an assistant account for this NOOB user
+        first = memory.user_count() == 0
+        if first and not on_this_pc():
+            return jsonify(ok=False, error="Create the owner account on the NOOB PC first."), 403
+        if not first:
+            invite = str(data.get("invite", "")).strip().upper()
+            if invite != settings()["invite_code"].upper():
+                return jsonify(ok=False, needs_invite=True,
+                               error="First time here? Enter the invite code from the owner of this NOOB."
+                               if not invite else "Wrong invite code. Ask the owner of this NOOB for the code."), 403
+        user_id = memory.create_user(free_username(noob["username"]), noob["name"][:60], secrets.token_urlsafe(24))
+        memory.link_noob(user_id, noob["id"], noob["username"])
+        profile = memory.get_profile(user_id)
+        if not profile.get("Name"):
+            memory.set_profile(user_id, {**profile, "Name": noob["name"][:60]})
+        log(f"New account from NOOB: @{noob['username']}" + (" (owner)" if first else ""))
+    start_session(user_id)
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/noob/link")
+@signed_in
+def api_noob_link():
+    noob, error = check_noob_login(body())
+    if error:
+        return error
+    if not memory.link_noob(g.user["id"], noob["id"], noob["username"]):
+        return jsonify(ok=False, error="That NOOB account is already linked to another account here."), 409
+    log(f"{g.user['username']} linked NOOB account @{noob['username']}")
+    return jsonify(ok=True, noob_username=noob["username"])
+
+
 # ------------------------------ NOOB device ------------------------------
 def device_for_key(key):
     if not key:
@@ -609,7 +678,8 @@ def api_status():
     return jsonify(version=VERSION, ip=ip, server_url=f"http://{ip}:{PORT}/ask", whisper=WHISPER_SIZE,
                    gemini=bool(s["gemini_api_key"] or os.environ.get("GEMINI_API_KEY")), gemini_model=last_good_model,
                    facts=len(memory.all_facts(g.user["id"])), messages=len(memory.recent_log(g.user["id"], 100000)),
-                   user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"])},
+                   user={"name": g.user["name"], "username": g.user["username"], "is_owner": bool(g.user["is_owner"]),
+                         "noob_username": g.user.get("noob_username") or ""},
                    profile_name=memory.get_profile(g.user["id"]).get("Name", "") or g.user["name"],
                    devices=len(devices), devices_online=sum(d["online"] for d in devices),
                    languages=len(VOICES), time=now_text())

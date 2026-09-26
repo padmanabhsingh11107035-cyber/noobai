@@ -247,3 +247,19 @@ textarea { resize: vertical; min-height: 70px; }
   background: rgba(0, 0, 0, .3); display: inline-block; margin: 6px 0 12px; }
 .grid2 + .grid2 { margin-top: 18px; }
 @media (max-width: 860px) { .user-chip { display: none; } }
+
+/* ---------- Continue with NOOB ---------- */
+.noob-btn { background: #ffffff; color: #0a0f1e; font-weight: 800; box-shadow: 0 8px 24px rgba(255, 255, 255, .12); }
+.noob-btn:hover { filter: brightness(.95); }
+.noob-mark { width: 26px; height: 26px; border-radius: 8px; display: inline-grid; place-items: center; font-weight: 900;
+  color: #fff; background: linear-gradient(135deg, #f43f5e, #7c5cff 55%, #22d3ee); font-size: 15px; flex: none; }
+.noob-mark.big { width: 46px; height: 46px; border-radius: 14px; font-size: 24px; }
+.noob-head { display: flex; gap: 14px; align-items: center; margin-bottom: 6px; }
+.noob-head h2 { margin: 0; }
+.or-line { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin: 18px 0 14px; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.center-text { text-align: center; margin-top: 12px; }
+.link-btn { background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; margin-top: 8px; padding: 4px 0; }
+.link-btn:hover { color: var(--text); }
+.noob-link-row { margin: 4px 0 6px; padding: 12px; border-radius: 12px; background: rgba(0, 0, 0, .2); }
+.grow-text { flex: 1; font-size: 13px; }

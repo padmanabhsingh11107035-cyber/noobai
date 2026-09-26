@@ -24,6 +24,7 @@ NOOB remembers what you tell it — even after it is switched off — and is spe
 | Healthcare knowledge with safety rules | Emergencies → 112 / 108, Tele MANAS 14416, no false diagnoses |
 | **Permanent memory** | Everything NOOB learns is saved in a local database and survives power-off |
 | **NOOB App**: About Me, Memory, Conversations, Devices, Settings | Web app (HTML + CSS + JavaScript) served by the NOOB server |
+| **Continue with NOOB** | Sign in with your NOOB social media account (nooob.xyz) — no new password needed |
 | **Accounts** — family and friends get their own NOOB | Sign in / create account; each person has their own memory, About Me and devices (new accounts need an invite code) |
 | Robot ⇄ app always know about each other | NOOB says hello to the PC every 15 s: the app shows it **Online / Offline**, and NOOB's screen shows whether the PC is on |
 | **Connect to nearby devices** | The app finds NOOB devices on your Wi-Fi and pairs with a 4-digit code on NOOB's screen |
@@ -236,6 +237,15 @@ Try: *"Mujhe do din se bukhar hai, kya karun?"*, *"Remember that my blood group 
   browsers only allow the microphone on secure pages.
 - **Their own NOOB:** anyone can build their own NOOB device and run their own server from this GitHub project.
 
+### Continue with NOOB (sign in with your NOOB social media account)
+
+- On the sign-in page, click **Continue with NOOB** and enter your NOOB (nooob.xyz) username or email and
+  password. The assistant checks them with NOOB's own login service, reads only your username and display name,
+  and ends that login straight away — **your NOOB password is never saved**. Suspended NOOB accounts are refused.
+- The first time, NOOB creates an assistant account for you (new people still need the owner's invite code).
+  After that, **Continue with NOOB** signs you straight in.
+- Already have an assistant account? **Settings → My account → Link NOOB account**, then you can use either way.
+
 ### Use NOOB from anywhere with your own domain (optional, free)
 
 Yes — NOOB works with a custom domain such as `noob.yourdomain.com`, using a free **Cloudflare Tunnel**.
@@ -354,6 +364,7 @@ noob-esp32-assistant/
     ├── noob_memory.py         ← permanent memory (SQLite database)
     ├── noob_devices.py        ← "Connect to nearby devices" (UDP discovery + pairing)
     ├── noob_settings.py       ← settings file handling
+    ├── noob_social.py         ← "Continue with NOOB" (sign in with a nooob.xyz account)
     ├── requirements.txt
     └── web/                   ← the NOOB App (HTML, CSS, JavaScript)
         ├── index.html
