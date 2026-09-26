@@ -45,7 +45,10 @@ import noob_devices
 import noob_settings
 import noob_social
 import noob_tunnel
+import noob_network
 from noob_memory import NoobMemory
+
+noob_network.prefer_ipv4()        # phone hotspots: skip dead IPv6 addresses (see noob_network.py)
 
 # ------------------------------ settings ------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))

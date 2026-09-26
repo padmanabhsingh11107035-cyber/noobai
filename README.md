@@ -368,6 +368,7 @@ noob-esp32-assistant/
     ├── noob_settings.py       ← settings file handling
     ├── noob_social.py         ← "Continue with NOOB" (sign in with a nooob.xyz account)
     ├── noob_tunnel.py         ← optional online address (Cloudflare Tunnel)
+    ├── noob_network.py        ← quick connections on phone hotspots (IPv4 first)
     ├── Setup online access.bat
     ├── requirements.txt
     └── web/                   ← the NOOB App (HTML, CSS, JavaScript)
