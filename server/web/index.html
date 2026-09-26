@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NOOB</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><radialGradient id='g' cx='35%' cy='30%'><stop offset='0' stop-color='%2322d3ee'/><stop offset='1' stop-color='%237c5cff'/></radialGradient></defs><circle cx='32' cy='32' r='28' fill='url(%23g)'/></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="bg-glow"></div>
+
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-orb"></div>
+    <div><div class="brand-name">NOOB</div><div class="brand-sub">AI Voice Assistant</div></div>
+  </div>
+  <nav>
+    <a href="#talk" data-page="talk"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg><span>Talk</span></a>
+    <a href="#about" data-page="about"><svg viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.2-8 5v2h16v-2c0-2.8-3.6-5-8-5Z"/></svg><span>About Me</span></a>
+    <a href="#memory" data-page="memory"><svg viewBox="0 0 24 24"><path d="M9 3a4 4 0 0 0-4 4v.2A3.5 3.5 0 0 0 3 10.5 3.5 3.5 0 0 0 4.3 13.2 3.5 3.5 0 0 0 7.5 18H9v3h2V3H9Zm6 0h-2v18h2v-3h1.5a3.5 3.5 0 0 0 3.2-4.8A3.5 3.5 0 0 0 21 10.5a3.5 3.5 0 0 0-2-3.3V7a4 4 0 0 0-4-4Z"/></svg><span>Memory</span></a>
+    <a href="#history" data-page="history"><svg viewBox="0 0 24 24"><path d="M4 4h16v12H7l-3 3V4Zm4 4v2h8V8H8Zm0 3v2h5v-2H8Z"/></svg><span>Conversations</span></a>
+    <a href="#devices" data-page="devices"><svg viewBox="0 0 24 24"><path d="M12 18a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm-4.2-2.8 1.4 1.4a4 4 0 0 1 5.6 0l1.4-1.4a6 6 0 0 0-8.4 0Zm-2.9-2.9 1.4 1.4a8 8 0 0 1 11.4 0l1.4-1.4a10 10 0 0 0-14.2 0ZM2 9.4l1.4 1.4a12 12 0 0 1 17.2 0L22 9.4a14 14 0 0 0-20 0Z"/></svg><span>Devices</span></a>
+    <a href="#settings" data-page="settings"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.7 7.7 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.7 7.7 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L11 21h4l.4-2.9a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg><span>Settings</span></a>
+  </nav>
+  <div class="server-pill" id="serverPill"><span class="dot"></span><span id="serverText">Connecting…</span></div>
+</aside>
+
+<main>
+  <!-- ============ TALK ============ -->
+  <section id="page-talk" class="page">
+    <div class="talk-layout">
+      <div class="talk-left">
+        <h1 id="greeting">Hello!</h1>
+        <p class="muted" id="subGreeting">Tap the orb and talk to me — in any language.</p>
+        <button class="orb-wrap" id="orbBtn" aria-label="Talk to NOOB">
+          <div class="orb idle" id="orb"><div class="orb-core"></div><div class="orb-ring"></div><div class="orb-ring r2"></div></div>
+        </button>
+        <div class="status-line" id="statusLine">Tap to talk</div>
+        <label class="switch-row">
+          <span class="switch"><input type="checkbox" id="convMode"><span class="slider"></span></span>
+          <span><b>Conversation mode</b><br><small class="muted">Keeps listening after each answer, like talking to a friend</small></span>
+        </label>
+      </div>
+      <div class="talk-right card">
+        <div class="chat" id="chat">
+          <div class="chat-empty" id="chatEmpty">
+            <div class="brand-orb big"></div>
+            <p>Your conversation with NOOB appears here.</p>
+            <div class="chips">
+              <button class="chip">What's the date today?</button>
+              <button class="chip">Mujhe sar dard hai, kya karun?</button>
+              <button class="chip">Tell me a fun fact</button>
+            </div>
+          </div>
+        </div>
+        <form class="composer" id="composer">
+          <input id="typeBox" placeholder="Or type a message…" autocomplete="off">
+          <button class="btn primary icon" type="submit" aria-label="Send"><svg viewBox="0 0 24 24"><path d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2z"/></svg></button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ABOUT ME ============ -->
+  <section id="page-about" class="page">
+    <header class="page-head">
+      <div><h1>About Me</h1><p class="muted">NOOB uses these details in every answer — for example your allergies when you ask about medicines. Saved only on this PC.</p></div>
+      <button class="btn primary" id="saveProfile">Save</button>
+    </header>
+    <div class="card"><div class="form-grid" id="profileForm"></div></div>
+  </section>
+
+  <!-- ============ MEMORY ============ -->
+  <section id="page-memory" class="page">
+    <header class="page-head">
+      <div><h1>Memory</h1><p class="muted">Everything NOOB remembers about you. Say “Remember that…” or add it here.</p></div>
+      <input class="search" id="factSearch" placeholder="Search memory…">
+    </header>
+    <form class="card add-row" id="addFact">
+      <input id="newFact" placeholder="Add something for NOOB to remember, e.g. My mother's birthday is 12 March" maxlength="500">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <div class="list" id="factList"></div>
+  </section>
+
+  <!-- ============ CONVERSATIONS ============ -->
+  <section id="page-history" class="page">
+    <header class="page-head">
+      <div><h1>Conversations</h1><p class="muted">Every question and answer, from the app and from your NOOB device.</p></div>
+      <div class="row"><input class="search" id="historySearch" placeholder="Search…"><button class="btn danger ghost" id="clearHistory">Clear all</button></div>
+    </header>
+    <div class="card history" id="historyList"></div>
+  </section>
+
+  <!-- ============ DEVICES ============ -->
+  <section id="page-devices" class="page">
+    <header class="page-head">
+      <div><h1>Connect to nearby devices</h1><p class="muted">Finds NOOB assistants on your Wi-Fi. Only devices running the NOOB firmware appear here.</p></div>
+    </header>
+    <div class="card scan-card">
+      <div class="radar" id="radar"><span></span><span></span><span></span><div class="radar-dot"></div></div>
+      <div>
+        <h2 id="scanTitle">Look for NOOB devices</h2>
+        <p class="muted">Switch on your NOOB and make sure it is on the same Wi-Fi as this PC.</p>
+        <button class="btn primary" id="scanBtn">Scan now</button>
+      </div>
+    </div>
+    <h3 class="section-title" id="foundTitle" hidden>Found nearby</h3>
+    <div class="list" id="foundList"></div>
+    <h3 class="section-title">My devices</h3>
+    <div class="list" id="myDevices"></div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="page-settings" class="page">
+    <header class="page-head"><div><h1>Settings</h1><p class="muted">Everything NOOB uses is free.</p></div></header>
+    <div class="grid2">
+      <div class="card">
+        <h2>AI brain</h2>
+        <p class="muted" id="brainStatus">…</p>
+        <label class="field"><span>Google Gemini API key (free)</span>
+          <div class="row"><input id="geminiKey" type="password" placeholder="Paste your key" autocomplete="off"><button class="btn primary" id="saveKey">Save</button></div>
+        </label>
+        <p class="muted small">Get one free at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a> → Get API key (no card needed). Without a key NOOB uses the offline brain (Ollama), if installed.</p>
+      </div>
+      <div class="card">
+        <h2>Server</h2>
+        <dl class="facts-dl" id="serverInfo"></dl>
+        <button class="btn danger ghost" id="stopServer">Stop NOOB server</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Live log</h2>
+      <pre class="log" id="log"></pre>
+    </div>
+  </section>
+</main>
+
+<!-- server offline overlay -->
+<div class="overlay" id="offline" hidden>
+  <div class="card center">
+    <div class="brand-orb big dim"></div>
+    <h2>NOOB server is not running</h2>
+    <p class="muted">Double-click <b>NOOB App.bat</b> to start it again. This page reconnects automatically.</p>
+  </div>
+</div>
+
+<!-- modal -->
+<div class="overlay" id="modal" hidden>
+  <div class="card modal">
+    <h2 id="modalTitle"></h2>
+    <p class="muted" id="modalText"></p>
+    <div id="modalBody"></div>
+    <div class="row end"><button class="btn ghost" id="modalCancel">Cancel</button><button class="btn primary" id="modalOk">OK</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

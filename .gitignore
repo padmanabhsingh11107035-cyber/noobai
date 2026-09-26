@@ -1,0 +1,12 @@
+# Private data - never upload these
+server/noob_memory.db
+server/noob_memory.db-journal
+server/noob_settings.json
+server/noob_settings.json.tmp
+server/noob_server.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

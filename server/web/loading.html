@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NOOB</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0f1e; color: #e9eefb;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+  body { display: grid; place-items: center;
+    background: radial-gradient(800px 500px at 80% -10%, rgba(124, 92, 255, .25), transparent 60%),
+                radial-gradient(600px 400px at 10% 110%, rgba(34, 211, 238, .15), transparent 60%), #0a0f1e; }
+  .box { text-align: center; }
+  .orb { width: 150px; height: 150px; margin: 0 auto 34px; border-radius: 50%;
+    background: radial-gradient(circle at 34% 28%, #cffafe 0%, #22d3ee 22%, #7c5cff 62%, #3b1f9e 100%);
+    box-shadow: 0 0 70px rgba(124, 92, 255, .6); animation: breathe 2.4s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+  h1 { font-size: 34px; letter-spacing: 3px; margin: 0 0 8px; }
+  p { color: #98a3bf; margin: 0; }
+  .bar { width: 240px; height: 4px; margin: 26px auto 0; border-radius: 4px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+  .bar div { width: 40%; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #7c5cff, #22d3ee);
+    animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="orb"></div>
+  <h1>NOOB</h1>
+  <p id="msg">Waking up NOOB…</p>
+  <div class="bar"><div></div></div>
+</div>
+<script>
+  // Waits for the NOOB server to be ready, then opens the app.
+  const started = Date.now();
+  async function check() {
+    try {
+      const r = await fetch("http://localhost:5000/health", { cache: "no-store" });
+      if (r.ok) { location.href = "http://localhost:5000/app"; return; }
+    } catch (e) { /* not ready yet */ }
+    const s = (Date.now() - started) / 1000;
+    document.getElementById("msg").textContent =
+      s < 20 ? "Waking up NOOB…" :
+      s < 120 ? "Loading the speech model… (the first start downloads it, please wait)" :
+      "Still starting… if this takes too long, open server\\noob_server.log to see what happened.";
+    setTimeout(check, 1000);
+  }
+  check();
+</script>
+</body>
+</html>
